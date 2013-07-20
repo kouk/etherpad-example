@@ -1,5 +1,5 @@
 /**
- * This code is mostly from the old Etherpad. Please help us to comment this code. 
+ * This code is mostly from the old Etherpad. Please help us to comment this code.
  * This helps other people to understand this code better and helps them to improve it.
  * TL;DR COMMENTS ON THIS FILE ARE HIGHLY APPRECIATED
  */
@@ -20,16 +20,32 @@
  * limitations under the License.
  */
 
-function makeCSSManager(emptyStylesheetTitle, top)
+function makeCSSManager(emptyStylesheetTitle, doc)
 {
-
-  function getSheetByTitle(title, top)
+  if (doc === true)
   {
-    if(top)
-      var allSheets = window.parent.parent.document.styleSheets;
-    else 
-      var allSheets = document.styleSheets;
-    
+    doc = 'parent';
+  } else if (!doc) {
+    doc = 'inner';
+  }
+
+  function getSheetByTitle(title)
+  {
+    if (doc === 'parent')
+    {
+      win = window.parent.parent;
+    }
+    else if (doc === 'inner') {
+      win = window;
+    }
+    else if (doc === 'outer') {
+      win = window.parent;
+    }
+    else {
+        throw "Unknown dynamic style container";
+    }
+    var allSheets = win.document.styleSheets;
+
     for (var i = 0; i < allSheets.length; i++)
     {
       var s = allSheets[i];
@@ -41,20 +57,7 @@ function makeCSSManager(emptyStylesheetTitle, top)
     return null;
   }
 
-/*function getSheetTagByTitle(title) {
-    var allStyleTags = document.getElementsByTagName("style");
-    for(var i=0;i<allStyleTags.length;i++) {
-      var t = allStyleTags[i];
-      if (t.title == title) {
-	return t;
-      }
-    }
-    return null;
-  }*/
-
-  var browserSheet = getSheetByTitle(emptyStylesheetTitle, top);
-  //var browserTag = getSheetTagByTitle(emptyStylesheetTitle);
-
+  var browserSheet = getSheetByTitle(emptyStylesheetTitle);
 
   function browserRules()
   {

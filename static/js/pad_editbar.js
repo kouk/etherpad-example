@@ -20,9 +20,9 @@
  * limitations under the License.
  */
 
-var padutils = require('/pad_utils').padutils;
-var padeditor = require('/pad_editor').padeditor;
-var padsavedrevs = require('/pad_savedrevs').padsavedrevs;
+var padutils = require('./pad_utils').padutils;
+var padeditor = require('./pad_editor').padeditor;
+var padsavedrevs = require('./pad_savedrevs');
 
 function indexOf(array, value) {
   for (var i = 0, ii = array.length; i < ii; i++) {
@@ -97,8 +97,15 @@ var padeditbar = (function()
   var self = {
     init: function()
     {
+      var self = this;
       $("#editbar .editbarbutton").attr("unselectable", "on"); // for IE
       $("#editbar").removeClass("disabledtoolbar").addClass("enabledtoolbar");
+      $("#editbar [data-key]").each(function (i, e) {
+        $(e).click(function (event) {
+          self.toolbarClick($(e).attr('data-key'));
+          event.preventDefault();
+        });
+      });
     },
     isEnabled: function()
     {
@@ -115,23 +122,27 @@ var padeditbar = (function()
       {
         if(cmd == "showusers")
         {
-          self.toogleDropDown("users");
+          self.toggleDropDown("users");
         }
         else if (cmd == 'settings')
         {
-              self.toogleDropDown("settingsmenu");
+              self.toggleDropDown("settings");
+        }
+        else if (cmd == 'connectivity')
+        {
+              self.toggleDropDown("connectivity");
         }
         else if (cmd == 'embed')
         {
           self.setEmbedLinks();
           $('#linkinput').focus().select();
-          self.toogleDropDown("embed");
+          self.toggleDropDown("embed");
         }
         else if (cmd == 'import_export')
         {
-	      self.toogleDropDown("importexport");
+	      self.toggleDropDown("importexport");
         }
-        else if (cmd == 'save')
+        else if (cmd == 'savedRevision')
         {
           padsavedrevs.saveNow();
         }
@@ -145,10 +156,7 @@ var padeditbar = (function()
             else if (cmd == 'insertorderedlist') ace.ace_doInsertOrderedList();
             else if (cmd == 'indent')
             {
-              if (!ace.ace_doIndentOutdent(false))
-              {
-                ace.ace_doInsertUnorderedList();
-              }
+              ace.ace_doIndentOutdent(false);
             }
             else if (cmd == 'outdent')
             {
@@ -158,7 +166,7 @@ var padeditbar = (function()
             {
               if ((!(ace.ace_getRep().selStart && ace.ace_getRep().selEnd)) || ace.ace_isCaret())
               {
-                if (window.confirm("Clear authorship colors on entire document?"))
+                if (window.confirm(html10n.get("pad.editbar.clearcolors")))
                 {
                   ace.ace_performDocumentApplyAttributesToCharRange(0, ace.ace_getRep().alltext.length, [
                     ['author', '']
@@ -175,14 +183,14 @@ var padeditbar = (function()
       }
       if(padeditor.ace) padeditor.ace.focus();
     },
-    toogleDropDown: function(moduleName)
+    toggleDropDown: function(moduleName, cb)
     {
-      var modules = ["settingsmenu", "importexport", "embed", "users"];
+      var modules = ["settings", "connectivity", "importexport", "embed", "users"];
       
-      //hide all modules
+      // hide all modules and remove highlighting of all buttons
       if(moduleName == "none")
       {
-        $("#editbar ul#menu_right > li").removeClass("selected");
+        var returned = false
         for(var i=0;i<modules.length;i++)
         {
           //skip the userlist
@@ -193,29 +201,30 @@ var padeditbar = (function()
         
           if(module.css('display') != "none")
           {
-            module.slideUp("fast");
+            $("#" + modules[i] + "link").removeClass("selected");
+            module.slideUp("fast", cb);
+            returned = true;
           }
         }
+        if(!returned && cb) return cb();
       }
       else 
       {
-        var nth_child = indexOf(modules, moduleName) + 1;
-      	if (nth_child > 0 && nth_child <= 3) {
-          $("#editbar ul#menu_right li:not(:nth-child(" + nth_child + "))").removeClass("selected");
-          $("#editbar ul#menu_right li:nth-child(" + nth_child + ")").toggleClass("selected");
-      	}
-        //hide all modules that are not selected and show the selected one
+        // hide all modules that are not selected and remove highlighting
+        // respectively add highlighting to the corresponding button
         for(var i=0;i<modules.length;i++)
         {
           var module = $("#" + modules[i]);
         
           if(module.css('display') != "none")
           {
+            $("#" + modules[i] + "link").removeClass("selected");
             module.slideUp("fast");
           }
           else if(modules[i]==moduleName)
           {
-            module.slideDown("fast");
+            $("#" + modules[i] + "link").addClass("selected");
+            module.slideDown("fast", cb);
           }
         }
       }
@@ -236,17 +245,15 @@ var padeditbar = (function()
       if ($('#readonlyinput').is(':checked'))
       {
         var basePath = document.location.href.substring(0, document.location.href.indexOf("/p/"));
-        var readonlyLink = basePath + "/ro/" + clientVars.readOnlyId;
-        $('#embedinput').val("<iframe src='" + readonlyLink + "?showControls=true&showChat=true&showLineNumbers=true&useMonospaceFont=false' width=600 height=400>");
+        var readonlyLink = basePath + "/p/" + clientVars.readOnlyId;
+        $('#embedinput').val("<iframe name='embed_readonly' src='" + readonlyLink + "?showControls=true&showChat=true&showLineNumbers=true&useMonospaceFont=false' width=600 height=400></iframe>");
         $('#linkinput').val(readonlyLink);
-        $('#embedreadonlyqr').attr("src","https://chart.googleapis.com/chart?chs=200x200&cht=qr&chld=H|0&chl=" + readonlyLink);
       }
       else
       {
         var padurl = window.location.href.split("?")[0];
-        $('#embedinput').val("<iframe src='" + padurl + "?showControls=true&showChat=true&showLineNumbers=true&useMonospaceFont=false' width=600 height=400>");
+        $('#embedinput').val("<iframe name='embed_readwrite' src='" + padurl + "?showControls=true&showChat=true&showLineNumbers=true&useMonospaceFont=false' width=600 height=400></iframe>");
         $('#linkinput').val(padurl);
-        $('#embedreadonlyqr').attr("src","https://chart.googleapis.com/chart?chs=200x200&cht=qr&chld=H|0&chl=" + padurl);
       }
     }
   };

@@ -20,8 +20,8 @@
  * limitations under the License.
  */
 
-var padcookie = require('/pad_cookie').padcookie;
-var padutils = require('/pad_utils').padutils;
+var padcookie = require('./pad_cookie').padcookie;
+var padutils = require('./pad_utils').padutils;
 
 var padeditor = (function()
 {
@@ -34,7 +34,7 @@ var padeditor = (function()
     viewZoom: 100,
     init: function(readyFunc, initialViewOptions, _pad)
     {
-      Ace2Editor = require('/ace').Ace2Editor;
+      Ace2Editor = require('./ace').Ace2Editor;
       pad = _pad;
       settings = pad.settings;
 
@@ -58,22 +58,57 @@ var padeditor = (function()
       self.setViewOptions(initialViewOptions);
 
       // view bar
-      self.initViewZoom();
       $("#viewbarcontents").show();
     },
     initViewOptions: function()
     {
+      // Line numbers
       padutils.bindCheckboxChange($("#options-linenoscheck"), function()
       {
         pad.changeViewOption('showLineNumbers', padutils.getCheckbox($("#options-linenoscheck")));
       });
+
+      // Author colors
       padutils.bindCheckboxChange($("#options-colorscheck"), function()
       {
+        padcookie.setPref('showAuthorshipColors', padutils.getCheckbox("#options-colorscheck"));
         pad.changeViewOption('showAuthorColors', padutils.getCheckbox("#options-colorscheck"));
       });
+
+      // Right to left
+      padutils.bindCheckboxChange($("#options-rtlcheck"), function()
+      {
+        pad.changeViewOption('rtlIsTrue', padutils.getCheckbox($("#options-rtlcheck")))
+      });
+      html10n.bind('localized', function() {
+        pad.changeViewOption('rtlIsTrue', ('rtl' == html10n.getDirection()));
+        padutils.setCheckbox($("#options-rtlcheck"), ('rtl' == html10n.getDirection()));
+      })
+
+      // font face
       $("#viewfontmenu").change(function()
       {
         pad.changeViewOption('useMonospaceFont', $("#viewfontmenu").val() == 'monospace');
+      });
+      
+      // Language
+      html10n.bind('localized', function() {
+        $("#languagemenu").val(html10n.getLanguage());
+        // translate the value of 'unnamed' and 'Enter your name' textboxes in the userlist
+        // this does not interfere with html10n's normal value-setting because html10n just ingores <input>s
+        // also, a value which has been set by the user will be not overwritten since a user-edited <input>
+        // does *not* have the editempty-class
+        $('input[data-l10n-id]').each(function(key, input)
+          {
+            input = $(input);
+            if(input.hasClass("editempty"))
+              input.val(html10n.get(input.attr("data-l10n-id")));
+          });
+      })
+      $("#languagemenu").val(html10n.getLanguage());
+      $("#languagemenu").change(function() {
+        pad.createCookie("language",$("#languagemenu").val(),null,'/');
+        window.html10n.localize([$("#languagemenu").val(), 'en']);
       });
     },
     setViewOptions: function(newOptions)
@@ -86,11 +121,13 @@ var padeditor = (function()
         return defaultValue;
       }
 
-      self.ace.setProperty("showsauthorcolors", !settings.noColors);
-
-      self.ace.setProperty("rtlIsTrue", settings.rtlIsTrue);
-
       var v;
+
+      v = getOption('rtlIsTrue', ('rtl' == html10n.getDirection()));
+      // Override from parameters if true
+      if(settings.rtlIsTrue === true) v = true;
+      self.ace.setProperty("rtlIsTrue", v);
+      padutils.setCheckbox($("#options-rtlcheck"), v);
 
       v = getOption('showLineNumbers', true);
       self.ace.setProperty("showslinenumbers", v);
@@ -99,40 +136,13 @@ var padeditor = (function()
       v = getOption('showAuthorColors', true);
       self.ace.setProperty("showsauthorcolors", v);
       padutils.setCheckbox($("#options-colorscheck"), v);
+      // Override from parameters if true
+      if (settings.noColors !== false)
+        self.ace.setProperty("showsauthorcolors", !settings.noColors);
 
       v = getOption('useMonospaceFont', false);
       self.ace.setProperty("textface", (v ? "monospace" : "Arial, sans-serif"));
       $("#viewfontmenu").val(v ? "monospace" : "normal");
-    },
-    initViewZoom: function()
-    {
-      var viewZoom = Number(padcookie.getPref('viewZoom'));
-      if ((!viewZoom) || isNaN(viewZoom))
-      {
-        viewZoom = 100;
-      }
-      self.setViewZoom(viewZoom);
-      $("#viewzoommenu").change(function(evt)
-      {
-        // strip initial 'z' from val
-        self.setViewZoom(Number($("#viewzoommenu").val().substring(1)));
-      });
-    },
-    setViewZoom: function(percent)
-    {
-      if (!(percent >= 50 && percent <= 1000))
-      {
-        // percent is out of sane range or NaN (which fails comparisons)
-        return;
-      }
-
-      self.viewZoom = percent;
-      $("#viewzoommenu").val('z' + percent);
-
-      var baseSize = 13;
-      self.ace.setProperty('textsize', Math.round(baseSize * self.viewZoom / 100));
-
-      padcookie.setPref('viewZoom', percent);
     },
     dispose: function()
     {

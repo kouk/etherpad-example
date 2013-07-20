@@ -20,53 +20,19 @@
  * limitations under the License.
  */
 
-var makeCSSManager = require('/cssmanager').makeCSSManager;
-var domline = require('/domline').domline;
-var AttribPool = require('/AttributePoolFactory').createAttributePool;
-var Changeset = require('/Changeset');
-var linestylefilter = require('/linestylefilter').linestylefilter;
-var colorutils = require('/colorutils').colorutils;
+var makeCSSManager = require('./cssmanager').makeCSSManager;
+var domline = require('./domline').domline;
+var AttribPool = require('./AttributePool');
+var Changeset = require('./Changeset');
+var linestylefilter = require('./linestylefilter').linestylefilter;
+var colorutils = require('./colorutils').colorutils;
+var _ = require('./underscore');
 
 // These parameters were global, now they are injected. A reference to the
 // Timeslider controller would probably be more appropriate.
 function loadBroadcastJS(socket, sendSocketMsg, fireWhenAllScriptsAreLoaded, BroadcastSlider)
 {
   var changesetLoader = undefined;
-  // just in case... (todo: this must be somewhere else in the client code.)
-  // Below Array#map code was direct pasted by AppJet/Etherpad, licence unknown. Possible source: http://www.tutorialspoint.com/javascript/array_map.htm
-  if (!Array.prototype.map)
-  {
-    Array.prototype.map = function(fun /*, thisp*/ )
-    {
-      var len = this.length >>> 0;
-      if (typeof fun != "function") throw new TypeError();
-
-      var res = new Array(len);
-      var thisp = arguments[1];
-      for (var i = 0; i < len; i++)
-      {
-        if (i in this) res[i] = fun.call(thisp, this[i], i, this);
-      }
-
-      return res;
-    };
-  }
-
-  // Below Array#forEach code was direct pasted by AppJet/Etherpad, licence unknown. Possible source: http://www.tutorialspoint.com/javascript/array_foreach.htm
-  if (!Array.prototype.forEach)
-  {
-    Array.prototype.forEach = function(fun /*, thisp*/ )
-    {
-      var len = this.length >>> 0;
-      if (typeof fun != "function") throw new TypeError();
-
-      var thisp = arguments[1];
-      for (var i = 0; i < len; i++)
-      {
-        if (i in this) fun.call(thisp, this[i], i, this);
-      }
-    };
-  }
 
   // Below Array#indexOf code was direct pasted by AppJet/Etherpad, licence unknown. Possible source: http://www.tutorialspoint.com/javascript/array_indexof.htm
   if (!Array.prototype.indexOf)
@@ -99,11 +65,6 @@ function loadBroadcastJS(socket, sendSocketMsg, fireWhenAllScriptsAreLoaded, Bro
     }
   }
 
-  function randomString()
-  {
-    return "_" + Math.floor(Math.random() * 1000000);
-  }
-
   // for IE
   if ($.browser.msie)
   {
@@ -115,7 +76,7 @@ function loadBroadcastJS(socket, sendSocketMsg, fireWhenAllScriptsAreLoaded, Bro
     {}
   }
 
-  var userId = "hiddenUser" + randomString();
+
   var socketId;
   //var socket;
   var channelState = "DISCONNECTED";
@@ -123,14 +84,14 @@ function loadBroadcastJS(socket, sendSocketMsg, fireWhenAllScriptsAreLoaded, Bro
   var appLevelDisconnectReason = null;
 
   var padContents = {
-    currentRevision: clientVars.revNum,
-    currentTime: clientVars.currentTime,
-    currentLines: Changeset.splitTextLines(clientVars.initialStyledContents.atext.text),
+    currentRevision: clientVars.collab_client_vars.rev,
+    currentTime: clientVars.collab_client_vars.time,
+    currentLines: Changeset.splitTextLines(clientVars.collab_client_vars.initialAttributedText.text),
     currentDivs: null,
     // to be filled in once the dom loads
-    apool: (new AttribPool()).fromJsonable(clientVars.initialStyledContents.apool),
+    apool: (new AttribPool()).fromJsonable(clientVars.collab_client_vars.apool),
     alines: Changeset.splitAttributionLines(
-    clientVars.initialStyledContents.atext.attribs, clientVars.initialStyledContents.atext.text),
+    clientVars.collab_client_vars.initialAttributedText.attribs, clientVars.collab_client_vars.initialAttributedText.text),
 
     // generates a jquery element containing HTML for a line
     lineToElement: function(line, aline)
@@ -191,10 +152,7 @@ function loadBroadcastJS(socket, sendSocketMsg, fireWhenAllScriptsAreLoaded, Bro
     // splice the lines
     splice: function(start, numRemoved, newLinesVA)
     {
-      var newLines = Array.prototype.slice.call(arguments, 2).map(
-
-      function(s)
-      {
+      var newLines = _.map(Array.prototype.slice.call(arguments, 2), function(s) {
         return s;
       });
 
@@ -286,14 +244,14 @@ function loadBroadcastJS(socket, sendSocketMsg, fireWhenAllScriptsAreLoaded, Bro
     if (broadcasting) applyChangeset(changesetForward, revision + 1, false, timeDelta);
   }
 
-/*
+   /*
    At this point, we must be certain that the changeset really does map from
    the current revision to the specified revision.  Any mistakes here will
    cause the whole slider to get out of sync.
    */
 
   function applyChangeset(changeset, revision, preventSliderMovement, timeDelta)
-  {
+  { 
     // disable the next 'gotorevision' call handled by a timeslider update
     if (!preventSliderMovement)
     {
@@ -314,12 +272,16 @@ function loadBroadcastJS(socket, sendSocketMsg, fireWhenAllScriptsAreLoaded, Bro
     Changeset.mutateTextLines(changeset, padContents);
     padContents.currentRevision = revision;
     padContents.currentTime += timeDelta * 1000;
+
     debugLog('Time Delta: ', timeDelta)
     updateTimer();
-    BroadcastSlider.setAuthors(padContents.getActiveAuthors().map(function(name)
+    
+    var authors = _.map(padContents.getActiveAuthors(), function(name)
     {
       return authorData[name];
-    }));
+    });
+    
+    BroadcastSlider.setAuthors(authors);
   }
 
   function updateTimer()
@@ -332,8 +294,6 @@ function loadBroadcastJS(socket, sendSocketMsg, fireWhenAllScriptsAreLoaded, Bro
         return str;
         }
         
-        
-        
     var date = new Date(padContents.currentTime);
     var dateFormat = function()
       {
@@ -343,7 +303,14 @@ function loadBroadcastJS(socket, sendSocketMsg, fireWhenAllScriptsAreLoaded, Bro
         var hours = zpad(date.getHours(), 2);
         var minutes = zpad(date.getMinutes(), 2);
         var seconds = zpad(date.getSeconds(), 2);
-        return ([month, '/', day, '/', year, ' ', hours, ':', minutes, ':', seconds].join(""));
+        return (html10n.get("timeslider.dateformat", {
+          "day": day,
+          "month": month,
+          "year": year,
+          "hours": hours,
+          "minutes": minutes, 
+          "seconds": seconds
+        }));
         }
         
         
@@ -351,8 +318,24 @@ function loadBroadcastJS(socket, sendSocketMsg, fireWhenAllScriptsAreLoaded, Bro
         
         
     $('#timer').html(dateFormat());
-
-    var revisionDate = ["Saved", ["Jan", "Feb", "March", "April", "May", "June", "July", "Aug", "Sept", "Oct", "Nov", "Dec"][date.getMonth()], date.getDate() + ",", date.getFullYear()].join(" ")
+    var revisionDate = html10n.get("timeslider.saved", {
+      "day": date.getDate(),
+      "month": [
+                html10n.get("timeslider.month.january"),
+                html10n.get("timeslider.month.february"),
+                html10n.get("timeslider.month.march"),
+                html10n.get("timeslider.month.april"),
+                html10n.get("timeslider.month.may"),
+                html10n.get("timeslider.month.june"),
+                html10n.get("timeslider.month.july"),
+                html10n.get("timeslider.month.august"),
+                html10n.get("timeslider.month.september"),
+                html10n.get("timeslider.month.october"),
+                html10n.get("timeslider.month.november"),
+                html10n.get("timeslider.month.december")
+               ][date.getMonth()],
+      "year": date.getFullYear()
+    });
     $('#revision_date').html(revisionDate)
 
   }
@@ -419,10 +402,11 @@ function loadBroadcastJS(socket, sendSocketMsg, fireWhenAllScriptsAreLoaded, Bro
 
       changesetLoader.queueUp(start, 1, update);
     }
-    BroadcastSlider.setAuthors(padContents.getActiveAuthors().map(function(name)
-    {
+    
+    var authors = _.map(padContents.getActiveAuthors(), function(name){
       return authorData[name];
-    }));
+    });
+    BroadcastSlider.setAuthors(authors);
   }
 
   changesetLoader = {
@@ -470,19 +454,6 @@ function loadBroadcastJS(socket, sendSocketMsg, fireWhenAllScriptsAreLoaded, Bro
       var start = request.rev;
       var requestID = Math.floor(Math.random() * 100000);
 
-/*var msg = { "component" : "timeslider",
-                  "type":"CHANGESET_REQ", 
-                  "padId": padId,
-                  "token": token,
-                  "protocolVersion": 2, 
-                  "data"
-                  {
-                    "start": start,
-                    "granularity": granularity
-                  }};
-    
-      socket.send(msg);*/
-
       sendSocketMsg("CHANGESET_REQ", {
         "start": start,
         "granularity": granularity,
@@ -490,19 +461,6 @@ function loadBroadcastJS(socket, sendSocketMsg, fireWhenAllScriptsAreLoaded, Bro
       });
 
       self.reqCallbacks[requestID] = callback;
-
-/*debugLog("loadinging revision", start, "through ajax");
-      $.getJSON("/ep/pad/changes/" + clientVars.padIdForUrl + "?s=" + start + "&g=" + granularity, function (data, textStatus)
-      {
-        if (textStatus !== "success")
-        {
-          console.log(textStatus);
-          BroadcastSlider.showReconnectUI();
-        }
-        self.handleResponse(data, start, granularity, callback);
-
-        setTimeout(self.loadFromQueue, 10); // load the next ajax function
-      });*/
     },
     handleSocketResponse: function(message)
     {
@@ -531,171 +489,57 @@ function loadBroadcastJS(socket, sendSocketMsg, fireWhenAllScriptsAreLoaded, Bro
         revisionInfo.addChangeset(astart, aend, forwardcs, backwardcs, data.timeDeltas[i]);
       }
       if (callback) callback(start - 1, start + data.forwardsChangesets.length * granularity - 1);
+    },
+    handleMessageFromServer: function (obj)
+    {
+      debugLog("handleMessage:", arguments);
+
+      if (obj.type == "COLLABROOM")
+      {
+        obj = obj.data;
+
+        if (obj.type == "NEW_CHANGES")
+        {
+          debugLog(obj);
+          var changeset = Changeset.moveOpsToNewPool(
+            obj.changeset, (new AttribPool()).fromJsonable(obj.apool), padContents.apool);
+
+          var changesetBack = Changeset.inverse(
+            obj.changeset, padContents.currentLines, padContents.alines, padContents.apool);
+
+          var changesetBack = Changeset.moveOpsToNewPool(
+            changesetBack, (new AttribPool()).fromJsonable(obj.apool), padContents.apool);
+
+          loadedNewChangeset(changeset, changesetBack, obj.newRev - 1, obj.timeDelta);
+        }
+        else if (obj.type == "NEW_AUTHORDATA")
+        {
+          var authorMap = {};
+          authorMap[obj.author] = obj.data;
+          receiveAuthorData(authorMap);
+
+          var authors = _.map(padContents.getActiveAuthors(), function(name) {
+            return authorData[name];
+          });
+
+          BroadcastSlider.setAuthors(authors);
+        }
+        else if (obj.type == "NEW_SAVEDREV")
+        {
+          var savedRev = obj.savedRev;
+          BroadcastSlider.addSavedRevision(savedRev.revNum, savedRev);
+        }
+      }
+      else if(obj.type == "CHANGESET_REQ")
+      {
+        changesetLoader.handleSocketResponse(obj);
+      }
+      else
+      {
+        debugLog("Unknown message type: " + obj.type);
+      }
     }
   };
-
-  function handleMessageFromServer()
-  {
-    debugLog("handleMessage:", arguments);
-    var obj = arguments[0]['data'];
-    var expectedType = "COLLABROOM";
-
-    obj = JSON.parse(obj);
-    if (obj['type'] == expectedType)
-    {
-      obj = obj['data'];
-
-      if (obj['type'] == "NEW_CHANGES")
-      {
-        debugLog(obj);
-        var changeset = Changeset.moveOpsToNewPool(
-        obj.changeset, (new AttribPool()).fromJsonable(obj.apool), padContents.apool);
-
-        var changesetBack = Changeset.moveOpsToNewPool(
-        obj.changesetBack, (new AttribPool()).fromJsonable(obj.apool), padContents.apool);
-
-        loadedNewChangeset(changeset, changesetBack, obj.newRev - 1, obj.timeDelta);
-      }
-      else if (obj['type'] == "NEW_AUTHORDATA")
-      {
-        var authorMap = {};
-        authorMap[obj.author] = obj.data;
-        receiveAuthorData(authorMap);
-        BroadcastSlider.setAuthors(padContents.getActiveAuthors().map(function(name)
-        {
-          return authorData[name];
-        }));
-      }
-      else if (obj['type'] == "NEW_SAVEDREV")
-      {
-        var savedRev = obj.savedRev;
-        BroadcastSlider.addSavedRevision(savedRev.revNum, savedRev);
-      }
-    }
-    else
-    {
-      debugLog("incorrect message type: " + obj['type'] + ", expected " + expectedType);
-    }
-  }
-
-  function handleSocketClosed(params)
-  {
-    debugLog("socket closed!", params);
-    socket = null;
-
-    BroadcastSlider.showReconnectUI();
-    // var reason = appLevelDisconnectReason || params.reason;
-    // var shouldReconnect = params.reconnect;
-    // if (shouldReconnect) {
-    //   // determine if this is a tight reconnect loop due to weird connectivity problems
-    //   // reconnectTimes.push(+new Date());
-    //   var TOO_MANY_RECONNECTS = 8;
-    //   var TOO_SHORT_A_TIME_MS = 10000;
-    //   if (reconnectTimes.length >= TOO_MANY_RECONNECTS &&
-    //       ((+new Date()) - reconnectTimes[reconnectTimes.length-TOO_MANY_RECONNECTS]) <
-    //       TOO_SHORT_A_TIME_MS) {
-    //      setChannelState("DISCONNECTED", "looping");
-    //   }
-    //   else {
-    //      setChannelState("RECONNECTING", reason);
-    //      setUpSocket();
-    //   }
-    // }
-    // else {
-    //   BroadcastSlider.showReconnectUI();
-    //   setChannelState("DISCONNECTED", reason);
-    // }
-  }
-
-  function sendMessage(msg)
-  {
-    socket.postMessage(JSON.stringify(
-    {
-      type: "COLLABROOM",
-      data: msg
-    }));
-  }
-
-/*function setUpSocket()
-  {
-    // required for Comet
-    if ((!$.browser.msie) && (!($.browser.mozilla && $.browser.version.indexOf("1.8.") == 0)))
-    {
-      document.domain = document.domain; // for comet
-    }
-
-    var success = false;
-    callCatchingErrors("setUpSocket", function ()
-    {
-      appLevelDisconnectReason = null;
-
-      socketId = String(Math.floor(Math.random() * 1e12));
-      socket = new WebSocket(socketId);
-      socket.onmessage = wrapRecordingErrors("socket.onmessage", handleMessageFromServer);
-      socket.onclosed = wrapRecordingErrors("socket.onclosed", handleSocketClosed);
-      socket.onopen = wrapRecordingErrors("socket.onopen", function ()
-      {
-        setChannelState("CONNECTED");
-        var msg = {
-          type: "CLIENT_READY",
-          roomType: 'padview',
-          roomName: 'padview/' + clientVars.viewId,
-          data: {
-            lastRev: clientVars.revNum,
-            userInfo: {
-              userId: userId
-            }
-          }
-        };
-        sendMessage(msg);
-      });
-      // socket.onhiccup = wrapRecordingErrors("socket.onhiccup", handleCometHiccup);
-      // socket.onlogmessage = function(x) {debugLog(x); };
-      socket.connect();
-      success = true;
-    });
-    if (success)
-    {
-      //initialStartConnectTime = +new Date();
-    }
-    else
-    {
-      abandonConnection("initsocketfail");
-    }
-  }*/
-
-  function setChannelState(newChannelState, moreInfo)
-  {
-    if (newChannelState != channelState)
-    {
-      channelState = newChannelState;
-      // callbacks.onChannelStateChange(channelState, moreInfo);
-    }
-  }
-
-  function abandonConnection(reason)
-  {
-    if (socket)
-    {
-      socket.onclosed = function()
-      {};
-      socket.onhiccup = function()
-      {};
-      socket.disconnect();
-    }
-    socket = null;
-    setChannelState("DISCONNECTED", reason);
-  }
-
-/*window['onloadFuncts'] = [];
-  window.onload = function ()
-  {
-    window['isloaded'] = true;
-    window['onloadFuncts'].forEach(function (funct)
-    {
-      funct();
-    });
-  };*/
 
   // to start upon window load, just push a function onto this array
   //window['onloadFuncts'].push(setUpSocket);
@@ -717,35 +561,18 @@ function loadBroadcastJS(socket, sendSocketMsg, fireWhenAllScriptsAreLoaded, Bro
   // this is necessary to keep infinite loops of events firing,
   // since goToRevision changes the slider position
   var goToRevisionIfEnabledCount = 0;
-  var goToRevisionIfEnabled = function()
+  var goToRevisionIfEnabled = function() {
+    if (goToRevisionIfEnabledCount > 0)
     {
-      if (goToRevisionIfEnabledCount > 0)
-      {
-        goToRevisionIfEnabledCount--;
-      }
-      else
-      {
-        goToRevision.apply(goToRevision, arguments);
-      }
-      }
-      
-      
-      
-      
+      goToRevisionIfEnabledCount--;
+    }
+    else
+    {
+      goToRevision.apply(goToRevision, arguments);
+    }
+  }
       
   BroadcastSlider.onSlider(goToRevisionIfEnabled);
-
-  (function()
-  {
-    for (var i = 0; i < clientVars.initialChangesets.length; i++)
-    {
-      var csgroup = clientVars.initialChangesets[i];
-      var start = clientVars.initialChangesets[i].start;
-      var granularity = clientVars.initialChangesets[i].granularity;
-      debugLog("loading changest on startup: ", start, granularity, csgroup);
-      changesetLoader.handleResponse(csgroup, start, granularity, null);
-    }
-  })();
 
   var dynamicCSS = makeCSSManager('dynamicsyntax');
   var authorData = {};
@@ -766,7 +593,7 @@ function loadBroadcastJS(socket, sendSocketMsg, fireWhenAllScriptsAreLoaded, Bro
     }
   }
 
-  receiveAuthorData(clientVars.historicalAuthorData);
+  receiveAuthorData(clientVars.collab_client_vars.historicalAuthorData);
 
   return changesetLoader;
 }

@@ -2,11 +2,11 @@
  * The pad object, defined with joose
  */
 
-var CommonCode = require('../utils/common_code');
+
 var ERR = require("async-stacktrace");
-var Changeset = CommonCode.require("/Changeset");
-var AttributePoolFactory = CommonCode.require("/AttributePoolFactory");
-var randomString = CommonCode.require('/pad_utils').randomString;
+var Changeset = require("ep_etherpad-lite/static/js/Changeset");
+var AttributePool = require("ep_etherpad-lite/static/js/AttributePool");
+var randomString = require('ep_etherpad-lite/static/js/pad_utils').randomString;
 var db = require("./DB").db;
 var async = require("async");
 var settings = require('../utils/Settings');
@@ -15,6 +15,12 @@ var padManager = require("./PadManager");
 var padMessageHandler = require("../handler/PadMessageHandler");
 var readOnlyManager = require("./ReadOnlyManager");
 var crypto = require("crypto");
+var randomString = require("../utils/randomstring");
+var hooks = require('ep_etherpad-lite/static/js/pluginfw/hooks');
+
+//serialization/deserialization attributes
+var attributeBlackList = ["id"];
+var jsonableList = ["pool"];
 
 /**
  * Copied from the Etherpad source code. It converts Windows line breaks to Unix line breaks and convert Tabs to spaces
@@ -28,13 +34,13 @@ exports.cleanText = function (txt) {
 var Pad = function Pad(id) {
 
   this.atext = Changeset.makeAText("\n");
-  this.pool = AttributePoolFactory.createAttributePool();
+  this.pool = new AttributePool();
   this.head = -1;
   this.chatHead = -1;
   this.publicStatus = false;
   this.passwordHash = null;
   this.id = id;
-
+  this.savedRevisions = [];
 };
 
 exports.Pad = Pad;
@@ -76,13 +82,42 @@ Pad.prototype.appendRevision = function appendRevision(aChangeset, author) {
   }
 
   db.set("pad:"+this.id+":revs:"+newRev, newRevData);
-  db.set("pad:"+this.id, {atext: this.atext,
-                          pool: this.pool.toJsonable(),
-                          head: this.head,
-                          chatHead: this.chatHead,
-                          publicStatus: this.publicStatus,
-                          passwordHash: this.passwordHash});
+  this.saveToDatabase();
+  
+  // set the author to pad
+  if(author)
+    authorManager.addPad(author, this.id);
+    
+  if (this.head == 0) {
+    hooks.callAll("padCreate", {'pad':this});
+  } else {
+    hooks.callAll("padUpdate", {'pad':this});
+  }    
 };
+
+//save all attributes to the database
+Pad.prototype.saveToDatabase = function saveToDatabase(){
+  var dbObject = {};
+  
+  for(var attr in this){
+    if(typeof this[attr] === "function") continue;
+    if(attributeBlackList.indexOf(attr) !== -1) continue;
+    
+    dbObject[attr] = this[attr];
+    
+    if(jsonableList.indexOf(attr) !== -1){
+      dbObject[attr] = dbObject[attr].toJsonable();
+    }
+  }
+  
+  db.set("pad:"+this.id, dbObject);
+}
+
+// get time of last edit (changeset application)
+Pad.prototype.getLastEdit = function getLastEdit(callback){
+  var revNum = this.getHeadRevisionNumber();
+  db.getSub("pad:"+this.id+":revs:"+revNum, ["meta", "timestamp"], callback);
+}
 
 Pad.prototype.getRevisionChangeset = function getRevisionChangeset(revNum, callback) {
   db.getSub("pad:"+this.id+":revs:"+revNum, ["changeset"], callback);
@@ -178,6 +213,48 @@ Pad.prototype.getInternalRevisionAText = function getInternalRevisionAText(targe
   });
 };
 
+Pad.prototype.getRevision = function getRevisionChangeset(revNum, callback) {
+  db.get("pad:"+this.id+":revs:"+revNum, callback);
+};
+
+Pad.prototype.getAllAuthorColors = function getAllAuthorColors(callback){
+  var authors = this.getAllAuthors();
+  var returnTable = {};
+  var colorPalette = authorManager.getColorPalette();
+
+  async.forEach(authors, function(author, callback){
+    authorManager.getAuthorColorId(author, function(err, colorId){
+      if(err){
+        return callback(err);
+      }
+      //colorId might be a hex color or an number out of the palette
+      returnTable[author]=colorPalette[colorId] || colorId;
+
+      callback();
+    });
+  }, function(err){
+    callback(err, returnTable);
+  });
+};
+
+Pad.prototype.getValidRevisionRange = function getValidRevisionRange(startRev, endRev) {
+  startRev = parseInt(startRev, 10);
+  var head = this.getHeadRevisionNumber();
+  endRev = endRev ? parseInt(endRev, 10) : head;
+  if(isNaN(startRev) || startRev < 0 || startRev > head) {
+    startRev = null;
+  }
+  if(isNaN(endRev) || endRev < startRev) {
+    endRev = null;
+  } else if(endRev > head) {
+    endRev = head;
+  }
+  if(startRev !== null && endRev !== null) {
+    return { startRev: startRev , endRev: endRev }
+  }
+  return null;
+};
+
 Pad.prototype.getKeyRevisionNumber = function getKeyRevisionNumber(revNum) {
   return Math.floor(revNum / 100) * 100;
 };
@@ -200,11 +277,10 @@ Pad.prototype.setText = function setText(newText) {
 };
 
 Pad.prototype.appendChatMessage = function appendChatMessage(text, userId, time) {
-      this.chatHead++;
-      //save the chat entry in the database
-      db.set("pad:"+this.id+":chat:"+this.chatHead, {"text": text, "userId": userId, "time": time});
-      //save the new chat head
-      db.setSub("pad:"+this.id, ["chatHead"], this.chatHead);
+  this.chatHead++;
+  //save the chat entry in the database
+  db.set("pad:"+this.id+":chat:"+this.chatHead, {"text": text, "userId": userId, "time": time});
+  this.saveToDatabase();
 };
 
 Pad.prototype.getChatMessage = function getChatMessage(entryNum, callback) {
@@ -247,27 +323,7 @@ Pad.prototype.getChatMessage = function getChatMessage(entryNum, callback) {
   });
 };
 
-Pad.prototype.getLastChatMessages = function getLastChatMessages(count, callback) {
-  //return an empty array if there are no chat messages
-  if(this.chatHead == -1)
-  {
-    callback(null, []);
-    return;
-  }
-
-  var _this = this;
-
-  //works only if we decrement the amount, for some reason
-  count--;
-
-  //set the startpoint
-  var start = this.chatHead-count;
-  if(start < 0)
-    start = 0;
-
-  //set the endpoint
-  var end = this.chatHead;
-
+Pad.prototype.getChatMessages = function getChatMessages(start, end, callback) {
   //collect the numbers of chat entries and in which order we need them
   var neededEntries = [];
   var order = 0;
@@ -276,7 +332,9 @@ Pad.prototype.getLastChatMessages = function getLastChatMessages(count, callback
     neededEntries.push({entryNum:i, order: order});
     order++;
   }
-
+  
+  var _this = this;
+  
   //get all entries out of the database
   var entries = [];
   async.forEach(neededEntries, function(entryObject, callback)
@@ -324,27 +382,14 @@ Pad.prototype.init = function init(text, callback) {
     //if this pad exists, load it
     if(value != null)
     {
-      _this.head = value.head;
-      _this.atext = value.atext;
-      _this.pool = _this.pool.fromJsonable(value.pool);
-
-      //ensure we have a local chatHead variable
-      if(value.chatHead != null)
-        _this.chatHead = value.chatHead;
-      else
-        _this.chatHead = -1;
-
-      //ensure we have a local publicStatus variable
-      if(value.publicStatus != null)
-        _this.publicStatus = value.publicStatus;
-      else
-        _this.publicStatus = false;
-
-      //ensure we have a local passwordHash variable
-      if(value.passwordHash != null)
-        _this.passwordHash = value.passwordHash;
-      else
-        _this.passwordHash = null;
+      //copy all attr. To a transfrom via fromJsonable if necassary
+      for(var attr in value){
+        if(jsonableList.indexOf(attr) !== -1){
+          _this[attr] = _this[attr].fromJsonable(value[attr]);
+        } else {
+          _this[attr] = value[attr];
+        }
+      }
     }
     //this pad doesn't exist, so create it
     else
@@ -354,6 +399,7 @@ Pad.prototype.init = function init(text, callback) {
       _this.appendRevision(firstChangeset, '');
     }
 
+    hooks.callAll("padLoad", {'pad':_this});
     callback(null);
   });
 };
@@ -433,14 +479,26 @@ Pad.prototype.remove = function remove(callback) {
           }
 
           callback();
+        },
+        //remove pad from all authors who contributed
+        function(callback)
+        {
+          var authorIDs = _this.getAllAuthors();
+
+          authorIDs.forEach(function (authorID)
+          {
+        	authorManager.removePad(authorID, padID);
+          });
+
+          callback();
         }
       ], callback);
     },
     //delete the pad entry and delete pad from padManager
     function(callback)
     {
-      db.remove("pad:"+padID);
-      padManager.unloadPad(padID);
+      padManager.removePad(padID);
+      hooks.callAll("padRemove", {'padID':padID});
       callback();
     }
   ], function(err)
@@ -452,12 +510,12 @@ Pad.prototype.remove = function remove(callback) {
     //set in db
 Pad.prototype.setPublicStatus = function setPublicStatus(publicStatus) {
   this.publicStatus = publicStatus;
-  db.setSub("pad:"+this.id, ["publicStatus"], this.publicStatus);
+  this.saveToDatabase();
 };
 
 Pad.prototype.setPassword = function setPassword(password) {
   this.passwordHash = password == null ? null : hash(password, generateSalt());
-  db.setSub("pad:"+this.id, ["passwordHash"], this.passwordHash);
+  this.saveToDatabase();
 };
 
 Pad.prototype.isCorrectPassword = function isCorrectPassword(password) {
@@ -466,6 +524,31 @@ Pad.prototype.isCorrectPassword = function isCorrectPassword(password) {
 
 Pad.prototype.isPasswordProtected = function isPasswordProtected() {
   return this.passwordHash != null;
+};
+
+Pad.prototype.addSavedRevision = function addSavedRevision(revNum, savedById, label) {
+  //if this revision is already saved, return silently
+  for(var i in this.savedRevisions){
+    if(this.savedRevisions.revNum === revNum){
+      return;
+    }
+  }
+  
+  //build the saved revision object
+  var savedRevision = {};
+  savedRevision.revNum = revNum;
+  savedRevision.savedById = savedById;
+  savedRevision.label = label || "Revision " + revNum;
+  savedRevision.timestamp = new Date().getTime();
+  savedRevision.id = randomString(10);
+  
+  //save this new saved revision
+  this.savedRevisions.push(savedRevision);
+  this.saveToDatabase();
+};
+
+Pad.prototype.getSavedRevisions = function getSavedRevisions() {
+  return this.savedRevisions;
 };
 
 /* Crypto helper methods */

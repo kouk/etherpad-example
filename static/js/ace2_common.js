@@ -1,5 +1,5 @@
 /**
- * This code is mostly from the old Etherpad. Please help us to comment this code. 
+ * This code is mostly from the old Etherpad. Please help us to comment this code.
  * This helps other people to understand this code better and helps them to improve it.
  * TL;DR COMMENTS ON THIS FILE ARE HIGHLY APPRECIATED
  */
@@ -20,7 +20,7 @@
  * limitations under the License.
  */
 
-var Security = require('/security');
+var Security = require('./security');
 
 function isNodeText(node)
 {
@@ -29,71 +29,10 @@ function isNodeText(node)
 
 function object(o)
 {
-  var f = function()
-    {};
+  var f = function(){};
   f.prototype = o;
   return new f();
 }
-
-function extend(obj, props)
-{
-  for (var p in props)
-  {
-    obj[p] = props[p];
-  }
-  return obj;
-}
-
-function forEach(array, func)
-{
-  for (var i = 0; i < array.length; i++)
-  {
-    var result = func(array[i], i);
-    if (result) break;
-  }
-}
-
-function map(array, func)
-{
-  var result = [];
-  // must remain compatible with "arguments" pseudo-array
-  for (var i = 0; i < array.length; i++)
-  {
-    if (func) result.push(func(array[i], i));
-    else result.push(array[i]);
-  }
-  return result;
-}
-
-function filter(array, func)
-{
-  var result = [];
-  // must remain compatible with "arguments" pseudo-array
-  for (var i = 0; i < array.length; i++)
-  {
-    if (func(array[i], i)) result.push(array[i]);
-  }
-  return result;
-}
-
-function isArray(testObject)
-{
-  return testObject && typeof testObject === 'object' && !(testObject.propertyIsEnumerable('length')) && typeof testObject.length === 'number';
-}
-
-var userAgent = (((function () {return this;})().navigator || {}).userAgent || 'node-js').toLowerCase();
-
-// Figure out what browser is being used (stolen from jquery 1.2.1)
-var browser = {
-  version: (userAgent.match(/.+(?:rv|it|ra|ie)[\/: ]([\d.]+)/) || [])[1],
-  safari: /webkit/.test(userAgent),
-  opera: /opera/.test(userAgent),
-  msie: /msie/.test(userAgent) && !/opera/.test(userAgent),
-  mozilla: /mozilla/.test(userAgent) && !/(compatible|webkit)/.test(userAgent),
-  windows: /windows/.test(userAgent),
-  mobile: /mobile/.test(userAgent) || /android/.test(userAgent)
-};
-
 
 function getAssoc(obj, name)
 {
@@ -141,17 +80,13 @@ function htmlPrettyEscape(str)
   return Security.escapeHTML(str).replace(/\r?\n/g, '\\n');
 }
 
+var noop = function(){};
+
 exports.isNodeText = isNodeText;
 exports.object = object;
-exports.extend = extend;
-exports.forEach = forEach;
-exports.map = map;
-exports.filter = filter;
-exports.isArray = isArray;
-exports.browser = browser;
 exports.getAssoc = getAssoc;
 exports.setAssoc = setAssoc;
 exports.binarySearch = binarySearch;
 exports.binarySearchInfinite = binarySearchInfinite;
 exports.htmlPrettyEscape = htmlPrettyEscape;
-exports.map = map;
+exports.noop = noop;

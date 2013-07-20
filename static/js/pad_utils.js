@@ -20,7 +20,7 @@
  * limitations under the License.
  */
 
-var Security = require('/security');
+var Security = require('./security');
 
 /**
  * Generates a random String with the given length. Is needed to generate the Author, Group, readonly, session Ids
@@ -39,20 +39,29 @@ function randomString(len)
   return randomstring;
 }
 
-function createCookie(name, value, days, path)
-{
+function createCookie(name, value, days, path){ /* Used by IE */
   if (days)
   {
     var date = new Date();
     date.setTime(date.getTime() + (days * 24 * 60 * 60 * 1000));
     var expires = "; expires=" + date.toGMTString();
   }
-  else var expires = "";
+  else{
+    var expires = "";
+  }
 
-  if(!path)
+  if(!path){ // IF the Path of the cookie isn't set then just create it on root
     path = "/";
+  }
 
-  document.cookie = name + "=" + value + expires + "; path=" + path;
+  //Check if the browser is IE and if so make sure the full path is set in the cookie
+  if(navigator.appName=='Microsoft Internet Explorer'){
+    document.cookie = name + "=" + value + expires + "; path=/"; /* Note this bodge fix for IE is temporary until auth is rewritten */
+  }
+  else{
+    document.cookie = name + "=" + value + expires + "; path=" + path;
+  }
+
 }
 
 function readCookie(name)
@@ -75,7 +84,7 @@ var padutils = {
   },
   uniqueId: function()
   {
-    var pad = require('/pad').pad; // Sidestep circular dependency
+    var pad = require('./pad').pad; // Sidestep circular dependency
     function encodeNum(n, width)
     {
       // returns string that is exactly 'width' chars, padding with zeros
@@ -167,7 +176,7 @@ var padutils = {
     // copied from ACE
     var _REGEX_WORDCHAR = /[\u0030-\u0039\u0041-\u005A\u0061-\u007A\u00C0-\u00D6\u00D8-\u00F6\u00F8-\u00FF\u0100-\u1FFF\u3040-\u9FFF\uF900-\uFDFF\uFE70-\uFEFE\uFF10-\uFF19\uFF21-\uFF3A\uFF41-\uFF5A\uFF66-\uFFDC]/;
     var _REGEX_URLCHAR = new RegExp('(' + /[-:@a-zA-Z0-9_.,~%+\/?=&#;()$]/.source + '|' + _REGEX_WORDCHAR.source + ')');
-    var _REGEX_URL = new RegExp(/(?:(?:https?|s?ftp|ftps|file|smb|afp|nfs|(x-)?man|gopher|txmt):\/\/|mailto:)/.source + _REGEX_URLCHAR.source + '*(?![:.,;])' + _REGEX_URLCHAR.source, 'g');
+    var _REGEX_URL = new RegExp(/(?:(?:https?|s?ftp|ftps|file|nfs):\/\/|mailto:)/.source + _REGEX_URLCHAR.source + '*(?![:.,;])' + _REGEX_URLCHAR.source, 'g');
 
     // returns null if no URLs, or [[startIndex1, url1], [startIndex2, url2], ...]
 
@@ -250,7 +259,7 @@ var padutils = {
   },
   timediff: function(d)
   {
-    var pad = require('/pad').pad; // Sidestep circular dependency
+    var pad = require('./pad').pad; // Sidestep circular dependency
     function format(n, word)
     {
       n = Math.round(n);
@@ -502,17 +511,26 @@ var padutils = {
 
 var globalExceptionHandler = undefined;
 function setupGlobalExceptionHandler() {
-  //send javascript errors to the server
   if (!globalExceptionHandler) {
     globalExceptionHandler = function test (msg, url, linenumber)
     {
-     var errObj = {errorInfo: JSON.stringify({msg: msg, url: url, linenumber: linenumber, userAgent: navigator.userAgent})};
-     var loc = document.location;
-     var url = loc.protocol + "//" + loc.hostname + ":" + loc.port + "/" + loc.pathname.substr(1, loc.pathname.indexOf("/p/")) + "jserror";
+      var errorId = randomString(20);
+      if ($("#editorloadingbox").attr("display") != "none"){
+        //show javascript errors to the user
+        $("#editorloadingbox").css("padding", "10px");
+        $("#editorloadingbox").css("padding-top", "45px");
+        $("#editorloadingbox").html("<div style='text-align:left;color:red;font-size:16px;'><b>An error occured</b><br>The error was reported with the following id: '" + errorId + "'<br><br><span style='color:black;font-weight:bold;font-size:16px'>Please send this error message to us: </span><div style='color:black;font-size:14px'>'"
+          + "ErrorId: " + errorId + "<br>URL: " + window.location.href + "<br>UserAgent: " + navigator.userAgent + "<br>" + msg + " in " + url + " at line " + linenumber + "'</div></div>");
+      }
+
+      //send javascript errors to the server
+      var errObj = {errorInfo: JSON.stringify({errorId: errorId, msg: msg, url: window.location.href, linenumber: linenumber, userAgent: navigator.userAgent})};
+      var loc = document.location;
+      var url = loc.protocol + "//" + loc.hostname + ":" + loc.port + "/" + loc.pathname.substr(1, loc.pathname.indexOf("/p/")) + "jserror";
  
-     $.post(url, errObj);
+      $.post(url, errObj);
  
-     return false;
+      return false;
     };
     window.onerror = globalExceptionHandler;
   }
@@ -520,7 +538,7 @@ function setupGlobalExceptionHandler() {
 
 padutils.setupGlobalExceptionHandler = setupGlobalExceptionHandler;
 
-padutils.binarySearch = require('/ace2_common').binarySearch;
+padutils.binarySearch = require('./ace2_common').binarySearch;
 
 exports.randomString = randomString;
 exports.createCookie = createCookie;

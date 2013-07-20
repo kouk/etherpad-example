@@ -25,19 +25,19 @@
 
 var _MAX_LIST_LEVEL = 8;
 
-var Changeset = require('/Changeset');
-var plugins = require('/plugins').plugins;
+var UNorm = require('unorm');
+var Changeset = require('./Changeset');
+var hooks = require('./pluginfw/hooks');
+var _ = require('./underscore');
 
 function sanitizeUnicode(s)
 {
-  return s.replace(/[\uffff\ufffe\ufeff\ufdd0-\ufdef\ud800-\udfff]/g, '?');
+  return UNorm.nfc(s).replace(/[\uffff\ufffe\ufeff\ufdd0-\ufdef\ud800-\udfff]/g, '?');
 }
 
 function makeContentCollector(collectStyles, browser, apool, domInterface, className2Author)
 {
   browser = browser || {};
-
-  var plugins_ = plugins;
 
   var dom = domInterface || {
     isNodeText: function(n)
@@ -163,12 +163,6 @@ function makeContentCollector(collectStyles, browser, apool, domInterface, class
   var selection, startPoint, endPoint;
   var selStart = [-1, -1],
       selEnd = [-1, -1];
-  var blockElems = {
-    "div": 1,
-    "p": 1,
-    "pre": 1
-  };
-
   function _isEmpty(node, state)
   {
     // consider clean blank lines pasted in IE to be empty
@@ -190,7 +184,7 @@ function makeContentCollector(collectStyles, browser, apool, domInterface, class
   {
     var ln = lines.length() - 1;
     var chr = lines.textOfLine(ln).length;
-    if (chr == 0 && state.listType && state.listType != 'none')
+    if (chr == 0 && !_.isEmpty(state.lineAttributes))
     {
       chr += 1; // listMarker
     }
@@ -242,25 +236,31 @@ function makeContentCollector(collectStyles, browser, apool, domInterface, class
 
   function _enterList(state, listType)
   {
-    var oldListType = state.listType;
-    state.listLevel = (state.listLevel || 0) + 1;
+    var oldListType = state.lineAttributes['list'];
     if (listType != 'none')
     {
       state.listNesting = (state.listNesting || 0) + 1;
     }
-    state.listType = listType;
+    
+    if(listType === 'none' || !listType ){
+      delete state.lineAttributes['list']; 
+    }
+    else{
+      state.lineAttributes['list'] = listType;
+    }
+    
     _recalcAttribString(state);
     return oldListType;
   }
 
   function _exitList(state, oldListType)
   {
-    state.listLevel--;
-    if (state.listType != 'none')
+    if (state.lineAttributes['list'])
     {
       state.listNesting--;
     }
-    state.listType = oldListType;
+    if (oldListType && oldListType != 'none') { state.lineAttributes['list'] = oldListType; }
+    else { delete state.lineAttributes['list']; }
     _recalcAttribString(state);
   }
 
@@ -303,21 +303,28 @@ function makeContentCollector(collectStyles, browser, apool, domInterface, class
     state.attribString = Changeset.makeAttribsString('+', lst, apool);
   }
 
-  function _produceListMarker(state)
+  function _produceLineAttributesMarker(state)
   {
-    lines.appendText('*', Changeset.makeAttribsString('+', [
-      ['list', state.listType],
+    // TODO: This has to go to AttributeManager.
+    var attributes = [
+      ['lmkr', '1'],
       ['insertorder', 'first']
-    ], apool));
+    ].concat(
+      _.map(state.lineAttributes,function(value,key){
+        return [key, value];
+      })
+    );
+    
+    lines.appendText('*', Changeset.makeAttribsString('+', attributes , apool));
   }
   cc.startNewLine = function(state)
   {
     if (state)
     {
       var atBeginningOfLine = lines.textOfLine(lines.length() - 1).length == 0;
-      if (atBeginningOfLine && state.listType && state.listType != 'none')
+      if (atBeginningOfLine && !_.isEmpty(state.lineAttributes))
       {
-        _produceListMarker(state);
+        _produceLineAttributesMarker(state);
       }
     }
     lines.startNew();
@@ -347,7 +354,14 @@ function makeContentCollector(collectStyles, browser, apool, domInterface, class
         localAttribs: null,
         attribs: { /*name -> nesting counter*/
         },
-        attribString: ''
+        attribString: '',
+        // lineAttributes maintain a map from attributes to attribute values set on a line
+        lineAttributes: {
+          /*
+          example:
+          'list': 'bullet1',
+          */
+        }
       };
     }
     var localAttribs = state.localAttribs;
@@ -360,6 +374,19 @@ function makeContentCollector(collectStyles, browser, apool, domInterface, class
     if (dom.isNodeText(node))
     {
       var txt = dom.nodeValue(node);
+      var tname = dom.nodeAttr(node.parentNode,"name");
+
+      var txtFromHook = hooks.callAll('collectContentLineText', {
+        cc: this,
+        state: state,
+        tname: tname,
+        node:node,
+        text:txt,
+        styl: null,
+        cls: null
+      });  
+      var txt = (typeof(txtFromHook)=='object'&&txtFromHook.length==0)?dom.nodeValue(node):txtFromHook[0];
+
       var rest = '';
       var x = 0; // offset into original text
       if (txt.length == 0)
@@ -371,7 +398,7 @@ function makeContentCollector(collectStyles, browser, apool, domInterface, class
         if (endPoint && node == endPoint.node)
         {
           selEnd = _pointHere(0, state);
-        }
+			}
       }
       while (txt.length > 0)
       {
@@ -409,9 +436,9 @@ function makeContentCollector(collectStyles, browser, apool, domInterface, class
           // newlines in the source mustn't become spaces at beginning of line box
           txt2 = txt2.replace(/^\n*/, '');
         }
-        if (atBeginningOfLine && state.listType && state.listType != 'none')
+        if (atBeginningOfLine && !_.isEmpty(state.lineAttributes))
         {
-          _produceListMarker(state);
+          _produceLineAttributesMarker(state);
         }
         lines.appendText(textify(txt2), state.attribString);
         x += consumed;
@@ -426,8 +453,21 @@ function makeContentCollector(collectStyles, browser, apool, domInterface, class
     {
       var tname = (dom.nodeTagName(node) || "").toLowerCase();
       if (tname == "br")
-      {
-        cc.startNewLine(state);
+      {        
+        this.breakLine = true;
+        var tvalue = dom.nodeAttr(node, 'value');
+        var induceLineBreak = hooks.callAll('collectContentLineBreak', {
+          cc: this,
+          state: state,
+          tname: tname,
+          tvalue:tvalue,
+          styl: null,
+          cls: null
+        });       
+        var startNewLine= (typeof(induceLineBreak)=='object'&&induceLineBreak.length==0)?true:induceLineBreak[0];
+        if(startNewLine){
+          cc.startNewLine(state);
+        }		  
       }
       else if (tname == "script" || tname == "style")
       {
@@ -448,7 +488,7 @@ function makeContentCollector(collectStyles, browser, apool, domInterface, class
         var oldAuthorOrNull = null;
         if (collectStyles)
         {
-          plugins_.callHook('collectContentPre', {
+          hooks.callAll('collectContentPre', {
             cc: cc,
             state: state,
             tname: tname,
@@ -475,7 +515,7 @@ function makeContentCollector(collectStyles, browser, apool, domInterface, class
           {
             var type;
             var rr = cls && /(?:^| )list-([a-z]+[12345678])\b/.exec(cls);
-            type = rr && rr[1] || "bullet" + String(Math.min(_MAX_LIST_LEVEL, (state.listNesting || 0) + 1));
+            type = rr && rr[1] || (tname == "ul" ? "bullet" : "number") + String(Math.min(_MAX_LIST_LEVEL, (state.listNesting || 0) + 1));
             oldListTypeOrNull = (_enterList(state, type) || 'none');
           }
           else if ((tname == "div" || tname == "p") && cls && cls.match(/(?:^| )ace-line\b/))
@@ -510,7 +550,7 @@ function makeContentCollector(collectStyles, browser, apool, domInterface, class
 
         if (collectStyles)
         {
-          plugins_.callHook('collectContentPost', {
+          hooks.callAll('collectContentPost', {
             cc: cc,
             state: state,
             tname: tname,

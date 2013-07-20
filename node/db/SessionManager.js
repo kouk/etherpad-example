@@ -1,5 +1,5 @@
 /**
- * The Session Manager provides functions to manage session in the database
+ * The Session Manager provides functions to manage session in the database, it only provides session management for sessions created by the API
  */
 
 /*
@@ -18,10 +18,10 @@
  * limitations under the License.
  */
  
-var CommonCode = require('../utils/common_code');
+
 var ERR = require("async-stacktrace");
 var customError = require("../utils/customError");
-var randomString = CommonCode.require('/pad_utils').randomString;
+var randomString = require('ep_etherpad-lite/static/js/pad_utils').randomString;
 var db = require("./DB").db;
 var async = require("async");
 var groupMangager = require("./GroupManager");
@@ -139,7 +139,7 @@ exports.createSession = function(groupID, authorID, validUntil, callback)
         if(ERR(err, callback)) return;
         
         //the entry doesn't exist so far, let's create it
-        if(group2sessions == null)
+        if(group2sessions == null || group2sessions.sessionIDs == null)
         {
           group2sessions = {sessionIDs : {}};
         }
@@ -162,7 +162,7 @@ exports.createSession = function(groupID, authorID, validUntil, callback)
         if(ERR(err, callback)) return;
         
         //the entry doesn't exist so far, let's create it
-        if(author2sessions == null)
+        if(author2sessions == null || author2sessions.sessionIDs == null)
         {
           author2sessions = {sessionIDs : {}};
         }

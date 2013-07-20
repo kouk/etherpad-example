@@ -28,11 +28,12 @@
 // requires: plugins
 // requires: undefined
 
-var Changeset = require('/Changeset');
-var plugins = require('/plugins').plugins;
-var map = require('/ace2_common').map;
-
+var Changeset = require('./Changeset');
+var hooks = require('./pluginfw/hooks');
 var linestylefilter = {};
+var _ = require('./underscore');
+var AttributeManager = require('./AttributeManager');
+
 
 linestylefilter.ATTRIB_CLASSES = {
   'bold': 'tag:b',
@@ -40,6 +41,9 @@ linestylefilter.ATTRIB_CLASSES = {
   'underline': 'tag:u',
   'strikethrough': 'tag:s'
 };
+
+var lineAttributeMarker = 'lineAttribMarker';
+exports.lineAttributeMarker = lineAttributeMarker;
 
 linestylefilter.getAuthorClassName = function(author)
 {
@@ -55,8 +59,6 @@ linestylefilter.getAuthorClassName = function(author)
 linestylefilter.getLineStyleFilter = function(lineLength, aline, textAndClassFunc, apool)
 {
 
-  var plugins_ = plugins;
-
   if (lineLength == 0) return textAndClassFunc;
 
   var nextAfterAuthorColors = textAndClassFunc;
@@ -71,14 +73,19 @@ linestylefilter.getLineStyleFilter = function(lineLength, aline, textAndClassFun
     function attribsToClasses(attribs)
     {
       var classes = '';
+      var isLineAttribMarker = false;
+      
       Changeset.eachAttribNumber(attribs, function(n)
       {
-        var key = apool.getAttribKey(n);
+        var key = apool.getAttribKey(n);  
         if (key)
         {
           var value = apool.getAttribValue(n);
           if (value)
           {
+            if (!isLineAttribMarker && _.indexOf(AttributeManager.lineAttributes, key) >= 0){
+              isLineAttribMarker = true;
+            }
             if (key == 'author')
             {
               classes += ' ' + linestylefilter.getAuthorClassName(value);
@@ -97,15 +104,17 @@ linestylefilter.getLineStyleFilter = function(lineLength, aline, textAndClassFun
             }
             else
             {
-              classes += plugins_.callHookStr("aceAttribsToClasses", {
+              classes += hooks.callAllStr("aceAttribsToClasses", {
                 linestylefilter: linestylefilter,
                 key: key,
                 value: value
               }, " ", " ", "");
-            }
+            }            
           }
         }
       });
+      
+      if(isLineAttribMarker) classes += ' ' + lineAttributeMarker;
       return classes.substring(1);
     }
 
@@ -137,9 +146,16 @@ linestylefilter.getLineStyleFilter = function(lineLength, aline, textAndClassFun
 
     return function(txt, cls)
     {
+	
+      var disableAuthColorForThisLine = hooks.callAll("disableAuthorColorsForThisLine", {
+        linestylefilter: linestylefilter,
+        text: txt,
+        "class": cls
+      }, " ", " ", "");   
+      var disableAuthors = (disableAuthColorForThisLine==null||disableAuthColorForThisLine.length==0)?false:disableAuthColorForThisLine[0];
       while (txt.length > 0)
       {
-        if (leftInAuthor <= 0)
+        if (leftInAuthor <= 0 || disableAuthors)
         {
           // prevent infinite loop if something funny's going on
           return nextAfterAuthorColors(txt, cls);
@@ -243,8 +259,8 @@ linestylefilter.getRegexpFilter = function(regExp, tag)
 
 
 linestylefilter.REGEX_WORDCHAR = /[\u0030-\u0039\u0041-\u005A\u0061-\u007A\u00C0-\u00D6\u00D8-\u00F6\u00F8-\u00FF\u0100-\u1FFF\u3040-\u9FFF\uF900-\uFDFF\uFE70-\uFEFE\uFF10-\uFF19\uFF21-\uFF3A\uFF41-\uFF5A\uFF66-\uFFDC]/;
-linestylefilter.REGEX_URLCHAR = new RegExp('(' + /[-:@a-zA-Z0-9_.,~%+\/\\?=&#;()$]/.source + '|' + linestylefilter.REGEX_WORDCHAR.source + ')');
-linestylefilter.REGEX_URL = new RegExp(/(?:(?:https?|s?ftp|ftps|file|smb|afp|nfs|(x-)?man|gopher|txmt):\/\/|mailto:|www\.)/.source + linestylefilter.REGEX_URLCHAR.source + '*(?![:.,;])' + linestylefilter.REGEX_URLCHAR.source, 'g');
+linestylefilter.REGEX_URLCHAR = new RegExp('(' + /[-:@a-zA-Z0-9_.,~%+\/\\?=&#!;()$]/.source + '|' + linestylefilter.REGEX_WORDCHAR.source + ')');
+linestylefilter.REGEX_URL = new RegExp(/(?:(?:https?|s?ftp|ftps|file|nfs):\/\/|mailto:|www\.)/.source + linestylefilter.REGEX_URLCHAR.source + '*(?![:.,;])' + linestylefilter.REGEX_URLCHAR.source, 'g');
 linestylefilter.getURLFilter = linestylefilter.getRegexpFilter(
 linestylefilter.REGEX_URL, 'url');
 
@@ -300,13 +316,11 @@ linestylefilter.getFilterStack = function(lineText, textAndClassFunc, browser)
 {
   var func = linestylefilter.getURLFilter(lineText, textAndClassFunc);
 
-  var plugins_ = plugins;
-
-  var hookFilters = plugins_.callHook("aceGetFilterStack", {
+  var hookFilters = hooks.callAll("aceGetFilterStack", {
     linestylefilter: linestylefilter,
     browser: browser
   });
-  map(hookFilters, function(hookFilter)
+  _.map(hookFilters ,function(hookFilter)
   {
     func = hookFilter(lineText, func);
   });

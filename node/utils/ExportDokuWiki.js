@@ -15,8 +15,8 @@
  */
 
 var async = require("async");
-var CommonCode = require('./common_code');
-var Changeset = CommonCode.require("/Changeset");
+
+var Changeset = require("ep_etherpad-lite/static/js/Changeset");
 var padManager = require("../db/PadManager");
 
 function getPadDokuWiki(pad, revNum, callback)
@@ -252,7 +252,12 @@ function getDokuWikiFromAtext(pad, atext)
 
     if (line.listLevel && lineContent)
     {
-      pieces.push(new Array(line.listLevel + 1).join('  ') + '* ');
+      if (line.listTypeName == "number")
+      {
+        pieces.push(new Array(line.listLevel + 1).join('  ') + ' - ');
+      } else {
+        pieces.push(new Array(line.listLevel + 1).join('  ') + '* ');
+      }
     }
     pieces.push(lineContent);
   }
@@ -311,7 +316,7 @@ exports.getPadDokuWikiDocument = function (padId, revNum, callback)
 
     getPadDokuWiki(pad, revNum, callback);
   });
-}
+};
 
 function _escapeDokuWiki(s)
 {

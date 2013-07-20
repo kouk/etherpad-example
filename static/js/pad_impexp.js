@@ -20,14 +20,11 @@
  * limitations under the License.
  */
 
-var paddocbar = require('/pad_docbar').paddocbar;
-
 var padimpexp = (function()
 {
 
   ///// import
   var currentImportTimer = null;
-  var hidePanelCall = null;
 
   function addImportFrames()
   {
@@ -69,10 +66,9 @@ var padimpexp = (function()
   function fileInputSubmit()
   {
     $('#importmessagefail').fadeOut("fast");
-    var ret = window.confirm("Importing a file will overwrite the current text of the pad." + " Are you sure you want to proceed?");
+    var ret = window.confirm(html10n.get("pad.impexp.confirmimport"));
     if (ret)
     {        
-      hidePanelCall = paddocbar.hideLaterIfNoOtherInteraction();
       currentImportTimer = window.setTimeout(function()
       {
         if (!currentImportTimer)
@@ -85,7 +81,8 @@ var padimpexp = (function()
       $('#importsubmitinput').attr(
       {
         disabled: true
-      }).val("Importing...");
+      }).val(html10n.get("pad.impexp.importing"));
+      
       window.setTimeout(function()
       {
         $('#importfileinput').attr(
@@ -95,11 +92,6 @@ var padimpexp = (function()
       }, 0);
       $('#importarrow').stop(true, true).hide();
       $('#importstatusball').show();
-      
-      $("#import .importframe").load(function()
-      {
-        importDone();
-      });
     }
     return ret;
   }
@@ -107,19 +99,18 @@ var padimpexp = (function()
   function importFailed(msg)
   {
     importErrorMessage(msg);
-    importDone();
-    addImportFrames();
   }
 
   function importDone()
   {
-    $('#importsubmitinput').removeAttr('disabled').val("Import Now");
+    $('#importsubmitinput').removeAttr('disabled').val(html10n.get("pad.impexp.importbutton"));
     window.setTimeout(function()
     {
       $('#importfileinput').removeAttr('disabled');
     }, 0);
     $('#importstatusball').hide();
     importClearTimeout();
+    addImportFrames();
   }
 
   function importClearTimeout()
@@ -131,11 +122,19 @@ var padimpexp = (function()
     }
   }
 
-  function importErrorMessage(msg)
+  function importErrorMessage(status)
   {
+    var msg="";
+  
+    if(status === "convertFailed"){
+      msg = html10n.get("pad.impexp.convertFailed");
+    } else if(status === "uploadFailed"){
+      msg = html10n.get("pad.impexp.uploadFailed");
+    }
+  
     function showError(fade)
     {
-      $('#importmessagefail').html('<strong style="color: red">Import failed:</strong> ' + (msg || 'Please try a different file.'))[(fade ? "fadeIn" : "show")]();
+      $('#importmessagefail').html('<strong style="color: red">'+html10n.get('pad.impexp.importfailed')+':</strong> ' + (msg || html10n.get('pad.impexp.copypaste','')))[(fade ? "fadeIn" : "show")]();
     }
 
     if ($('#importexport .importmessage').is(':visible'))
@@ -175,39 +174,6 @@ var padimpexp = (function()
     importDone();
   }
 
-  function importApplicationSuccessful(data, textStatus)
-  {
-    if (data.substr(0, 2) == "ok")
-    {
-      if ($('#importexport .importmessage').is(':visible'))
-      {
-        $('#importexport .importmessage').hide();
-      }
-      $('#importmessagesuccess').html('<strong style="color: green">Import successful!</strong>').show();
-      $('#importformfilediv').hide();
-      window.setTimeout(function()
-      {
-        $('#importmessagesuccess').fadeOut("slow", function()
-        {
-          $('#importformfilediv').show();
-        });
-        if (hidePanelCall)
-        {
-          hidePanelCall();
-        }
-      }, 3000);
-    }
-    else if (data.substr(0, 4) == "fail")
-    {
-      importErrorMessage("Couldn't update pad contents. This can happen if your web browser has \"cookies\" disabled.");
-    }
-    else if (data.substr(0, 4) == "msg:")
-    {
-      importErrorMessage(data.substr(4));
-    }
-    importDone();
-  }
-
   ///// export
 
   function cantExport()
@@ -229,7 +195,7 @@ var padimpexp = (function()
     {
       type = "this file";
     }
-    alert("Exporting as " + type + " format is disabled. Please contact your" + " system administrator for details.");
+    alert(html10n.get("pad.impexp.exportdisabled", {type:type}));
     return false;
   }
 
@@ -241,15 +207,23 @@ var padimpexp = (function()
       pad = _pad;
 
       //get /p/padname
-      var pad_root_path = new RegExp(/.*\/p\/[^\/]+/).exec(document.location.pathname)
-      //get http://example.com/p/padname
-      var pad_root_url = document.location.href.replace(document.location.pathname, pad_root_path)
+      var pad_root_path = new RegExp(/.*\/p\/[^\/]+/).exec(document.location.pathname);
+      //get http://example.com/p/padname without Params
+      var pad_root_url = document.location.protocol + '//' + document.location.host + document.location.pathname;
+
+      //i10l buttom import
+      $('#importsubmitinput').val(html10n.get("pad.impexp.importbutton"));
+      html10n.bind('localized', function() {
+        $('#importsubmitinput').val(html10n.get("pad.impexp.importbutton"));
+      })
 
       // build the export links
       $("#exporthtmla").attr("href", pad_root_path + "/export/html");
       $("#exportplaina").attr("href", pad_root_path + "/export/txt");
-      $("#exportwordlea").attr("href", pad_root_path + "/export/wordle");
       $("#exportdokuwikia").attr("href", pad_root_path + "/export/dokuwiki");
+
+      // activate action to import in the form
+      $("#importform").attr('action', pad_root_url + "/import");
       
       //hide stuff thats not avaible if abiword is disabled
       if(clientVars.abiwordAvailable == "no")
@@ -257,9 +231,8 @@ var padimpexp = (function()
         $("#exportworda").remove();
         $("#exportpdfa").remove();
         $("#exportopena").remove();
-        $("#importexport").css({"height":"115px"});
-        $("#importexportline").css({"height":"115px"});
-        $("#import").html("Import is not available.  To enable import please install abiword");
+
+        $("#importmessageabiword").show();
       }
       else if(clientVars.abiwordAvailable == "withoutPDF")
       {
@@ -270,38 +243,27 @@ var padimpexp = (function()
         
         $("#importexport").css({"height":"142px"});
         $("#importexportline").css({"height":"142px"});
-        
-        $("#importform").attr('action', pad_root_url + "/import"); 
       }
       else
       {
         $("#exportworda").attr("href", pad_root_path + "/export/doc");
         $("#exportpdfa").attr("href", pad_root_path + "/export/pdf");
         $("#exportopena").attr("href", pad_root_path + "/export/odt");
-        
-        $("#importform").attr('action', pad_root_path + "/import"); 
       }
     
-      $("#impexp-close").click(function()
-      {
-        paddocbar.setShownPanel(null);
-      });
-
       addImportFrames();
       $("#importfileinput").change(fileInputUpdated);
       $('#importform').submit(fileInputSubmit);
       $('.disabledexport').click(cantExport);
     },
-    handleFrameCall: function(callName, argsArray)
+    handleFrameCall: function(status)
     {
-      if (callName == 'importFailed')
+      if (status !== "ok")
       {
-        importFailed(argsArray[0]);
+        importFailed(status);
       }
-      else if (callName == 'importSuccessful')
-      {
-        importSuccessful(argsArray[0]);
-      }
+      
+      importDone();
     },
     disable: function()
     {
@@ -314,17 +276,6 @@ var padimpexp = (function()
       $("#impexp-disabled-clickcatcher").hide();
       $("#import").css('opacity', 1);
       $("#impexp-export").css('opacity', 1);
-    },
-    export2Wordle: function()
-    {
-      var padUrl = $('#exportwordlea').attr('href').replace(/\/wordle$/, '/txt')
-      
-      $.get(padUrl, function(data) 
-      {
-        $('.result').html(data);
-        $('#text').html(data);
-        $('#wordlepost').submit();
-      });
     }
   };
   return self;

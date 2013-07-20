@@ -24,6 +24,13 @@
 
 var colorutils = {};
 
+// Check that a given value is a css hex color value, e.g.
+// "#ffffff" or "#fff"
+colorutils.isCssHex = function(cssColor)
+{
+  return /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(cssColor);
+}
+
 // "#ffffff" or "#fff" or "ffffff" or "fff" to [1.0, 1.0, 1.0]
 colorutils.css2triple = function(cssColor)
 {
@@ -118,6 +125,21 @@ colorutils.saturate = function(c)
 colorutils.blend = function(c1, c2, t)
 {
   return [colorutils.scale(t, c1[0], c2[0]), colorutils.scale(t, c1[1], c2[1]), colorutils.scale(t, c1[2], c2[2])];
+}
+
+colorutils.invert = function(c)
+{
+  return [1 - c[0], 1 - c[1], 1- c[2]];
+}
+
+colorutils.complementary = function(c)
+{
+  var inv = colorutils.invert(c);
+  return [
+    (inv[0] >= c[0]) ? Math.min(inv[0] * 1.30, 1) : (c[0] * 0.30),
+    (inv[1] >= c[1]) ? Math.min(inv[1] * 1.59, 1) : (c[1] * 0.59),
+    (inv[2] >= c[2]) ? Math.min(inv[2] * 1.11, 1) : (c[2] * 0.11)
+  ];
 }
 
 exports.colorutils = colorutils;

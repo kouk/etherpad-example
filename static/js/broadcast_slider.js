@@ -22,6 +22,9 @@
 
  // These parameters were global, now they are injected. A reference to the
  // Timeslider controller would probably be more appropriate.
+var _ = require('./underscore');
+var padmodals = require('./pad_modals').padmodals;
+
 function loadBroadcastSliderJS(fireWhenAllScriptsAreLoaded)
 {
   var BroadcastSlider;
@@ -52,11 +55,7 @@ function loadBroadcastSliderJS(fireWhenAllScriptsAreLoaded)
         {
           slidercallbacks[i](newval);
         }
-        }
-        
-        
-        
-        
+      }
         
     var updateSliderElements = function()
       {
@@ -66,12 +65,8 @@ function loadBroadcastSliderJS(fireWhenAllScriptsAreLoaded)
           savedRevisions[i].css('left', (position * ($("#ui-slider-bar").width() - 2) / (sliderLength * 1.0)) - 1);
         }
         $("#ui-slider-handle").css('left', sliderPos * ($("#ui-slider-bar").width() - 2) / (sliderLength * 1.0));
-        }
-        
-        
-        
-        
-        
+      }  
+
     var addSavedRevision = function(position, info)
       {
         var newSavedRevision = $('<div></div>');
@@ -86,7 +81,7 @@ function loadBroadcastSliderJS(fireWhenAllScriptsAreLoaded)
           BroadcastSlider.setSliderPosition(position);
         });
         savedRevisions.push(newSavedRevision);
-        };
+      };
 
     var removeSavedRevision = function(position)
       {
@@ -94,7 +89,7 @@ function loadBroadcastSliderJS(fireWhenAllScriptsAreLoaded)
         savedRevisions.remove(element);
         element.remove();
         return element;
-        };
+      };
 
     /* Begin small 'API' */
 
@@ -112,12 +107,17 @@ function loadBroadcastSliderJS(fireWhenAllScriptsAreLoaded)
     {
       newpos = Number(newpos);
       if (newpos < 0 || newpos > sliderLength) return;
+      if(!newpos){
+        newpos = 0; // stops it from displaying NaN if newpos isn't set
+      }
+      window.location.hash = "#" + newpos;
       $("#ui-slider-handle").css('left', newpos * ($("#ui-slider-bar").width() - 2) / (sliderLength * 1.0));
       $("a.tlink").map(function()
       {
         $(this).attr('href', $(this).attr('thref').replace("%revision%", newpos));
       });
-      $("#revision_label").html("Version " + newpos);
+
+      $("#revision_label").html(html10n.get("timeslider.version", { "version": newpos}));
 
       if (newpos == 0)
       {
@@ -160,49 +160,75 @@ function loadBroadcastSliderJS(fireWhenAllScriptsAreLoaded)
 
     function showReconnectUI()
     {
-      if (!clientVars.sliderEnabled || !clientVars.supportsSlider)
-      {
-        $("#padmain, #rightbars").css('top', "130px");
-        $("#timeslider").show();
-      }
-      $('#error').show();
+      padmodals.showModal("disconnected");
     }
 
+    var fixPadHeight = _.throttle(function(){
+      var height = $('#timeslider-top').height();
+      $('#editorcontainerbox').css({marginTop: height});
+    }, 600);
+    
     function setAuthors(authors)
     {
-      $("#authorstable").empty();
+      var authorsList = $("#authorsList");
+      authorsList.empty();
       var numAnonymous = 0;
       var numNamed = 0;
-      authors.forEach(function(author)
+      var colorsAnonymous = [];
+      _.each(authors, function(author)
       {
+        var authorColor =  clientVars.colorPalette[author.colorId] || author.colorId;
         if (author.name)
         {
+          if (numNamed !== 0) authorsList.append(', ');
+          
+          $('<span />')
+            .text(author.name || "unnamed")
+            .css('background-color', authorColor)
+            .addClass('author')
+            .appendTo(authorsList);
+
           numNamed++;
-          var tr = $('<tr></tr>');
-          var swatchtd = $('<td></td>');
-          var swatch = $('<div class="swatch"></div>');
-          swatch.css('background-color', clientVars.colorPalette[author.colorId]);
-          swatchtd.append(swatch);
-          tr.append(swatchtd);
-          var nametd = $('<td></td>');
-          nametd.text(author.name || "unnamed");
-          tr.append(nametd);
-          $("#authorstable").append(tr);
         }
         else
         {
           numAnonymous++;
+          if(authorColor) colorsAnonymous.push(authorColor);
         }
       });
       if (numAnonymous > 0)
       {
-        var html = "<tr><td colspan=\"2\" style=\"color:#999; padding-left: 10px\">" + (numNamed > 0 ? "...and " : "") + numAnonymous + " unnamed author" + (numAnonymous > 1 ? "s" : "") + "</td></tr>";
-        $("#authorstable").append($(html));
+        var anonymousAuthorString;
+        if(numAnonymous == 1)
+          anonymousAuthorString = html10n.get("timeslider.unnamedauthor", { num: numAnonymous });
+        else
+          anonymousAuthorString = html10n.get("timeslider.unnamedauthors", { num: numAnonymous });
+        
+        if (numNamed !== 0){
+          authorsList.append(' + ' + anonymousAuthorString);
+        } else {
+          authorsList.append(anonymousAuthorString);
+        }
+        
+        if(colorsAnonymous.length > 0){
+          authorsList.append(' (');
+          _.each(colorsAnonymous, function(color, i){
+            if( i > 0 ) authorsList.append(' '); 
+            $('<span>&nbsp;</span>')
+              .css('background-color', color)
+              .addClass('author author-anonymous')
+              .appendTo(authorsList);
+          });
+          authorsList.append(')');
+        }
+        
       }
       if (authors.length == 0)
       {
-        $("#authorstable").append($("<tr><td colspan=\"2\" style=\"color:#999; padding-left: 10px\">No Authors</td></tr>"))
+        authorsList.append(html10n.get("timeslider.toolbar.authorsList"));
       }
+      
+      fixPadHeight();
     }
 
     BroadcastSlider = {
@@ -259,55 +285,52 @@ function loadBroadcastSliderJS(fireWhenAllScriptsAreLoaded)
     {
       disableSelection($("#playpause_button")[0]);
       disableSelection($("#timeslider")[0]);
-
-      if (clientVars.sliderEnabled && clientVars.supportsSlider)
+      
+      $(document).keyup(function(e)
       {
-        $(document).keyup(function(e)
-        {
-          var code = -1;
-          if (!e) var e = window.event;
-          if (e.keyCode) code = e.keyCode;
-          else if (e.which) code = e.which;
+        var code = -1;
+        if (!e) var e = window.event;
+        if (e.keyCode) code = e.keyCode;
+        else if (e.which) code = e.which;
 
-          if (code == 37)
-          { // left
-            if (!e.shiftKey)
-            {
-              setSliderPosition(getSliderPosition() - 1);
-            }
-            else
-            {
-              var nextStar = 0; // default to first revision in document
-              for (var i = 0; i < savedRevisions.length; i++)
-              {
-                var pos = parseInt(savedRevisions[i].attr('pos'));
-                if (pos < getSliderPosition() && nextStar < pos) nextStar = pos;
-              }
-              setSliderPosition(nextStar);
-            }
-          }
-          else if (code == 39)
+        if (code == 37)
+        { // left
+          if (!e.shiftKey)
           {
-            if (!e.shiftKey)
-            {
-              setSliderPosition(getSliderPosition() + 1);
-            }
-            else
-            {
-              var nextStar = sliderLength; // default to last revision in document
-              for (var i = 0; i < savedRevisions.length; i++)
-              {
-                var pos = parseInt(savedRevisions[i].attr('pos'));
-                if (pos > getSliderPosition() && nextStar > pos) nextStar = pos;
-              }
-              setSliderPosition(nextStar);
-            }
+            setSliderPosition(getSliderPosition() - 1);
           }
-          else if (code == 32) playpause();
+          else
+          {
+            var nextStar = 0; // default to first revision in document
+            for (var i = 0; i < savedRevisions.length; i++)
+            {
+              var pos = parseInt(savedRevisions[i].attr('pos'));
+              if (pos < getSliderPosition() && nextStar < pos) nextStar = pos;
+            }
+            setSliderPosition(nextStar);
+          }
+        }
+        else if (code == 39)
+        {
+          if (!e.shiftKey)
+          {
+            setSliderPosition(getSliderPosition() + 1);
+          }
+          else
+          {
+            var nextStar = sliderLength; // default to last revision in document
+            for (var i = 0; i < savedRevisions.length; i++)
+            {
+              var pos = parseInt(savedRevisions[i].attr('pos'));
+              if (pos > getSliderPosition() && nextStar > pos) nextStar = pos;
+            }
+            setSliderPosition(nextStar);
+          }
+        }
+        else if (code == 32) playpause();
 
-        });
-      }
-
+      });
+      
       $(window).resize(function()
       {
         updateSliderElements();
@@ -333,7 +356,7 @@ function loadBroadcastSliderJS(fireWhenAllScriptsAreLoaded)
           var newloc = self.currentLoc + (evt2.clientX - self.startLoc);
           if (newloc < 0) newloc = 0;
           if (newloc > ($("#ui-slider-bar").width() - 2)) newloc = ($("#ui-slider-bar").width() - 2);
-          $("#revision_label").html("Version " + Math.floor(newloc * sliderLength / ($("#ui-slider-bar").width() - 2)));
+          $("#revision_label").html(html10n.get("timeslider.version", { "version": Math.floor(newloc * sliderLength / ($("#ui-slider-bar").width() - 2))}));
           $(self).css('left', newloc);
           if (getSliderPosition() != Math.floor(newloc * sliderLength / ($("#ui-slider-bar").width() - 2))) _callSliderCallbacks(Math.floor(newloc * sliderLength / ($("#ui-slider-bar").width() - 2)))
         });
@@ -348,7 +371,11 @@ function loadBroadcastSliderJS(fireWhenAllScriptsAreLoaded)
           $(self).css('left', newloc);
           // if(getSliderPosition() != Math.floor(newloc * sliderLength / ($("#ui-slider-bar").width()-2)))
           setSliderPosition(Math.floor(newloc * sliderLength / ($("#ui-slider-bar").width() - 2)))
-          self.currentLoc = parseInt($(self).css('left'));
+          if(parseInt($(self).css('left')) < 2){
+            $(self).css('left', '2px');
+          }else{
+            self.currentLoc = parseInt($(self).css('left'));
+          }
         });
       })
 
@@ -433,62 +460,27 @@ function loadBroadcastSliderJS(fireWhenAllScriptsAreLoaded)
 
       if (clientVars)
       {
-        if (clientVars.fullWidth)
+        $("#timeslider").show();
+        
+        var startPos = clientVars.collab_client_vars.rev;
+        if(window.location.hash.length > 1)
         {
-          $("#padpage").css('width', '100%');
-          $("#revision").css('position', "absolute")
-          $("#revision").css('right', "20px")
-          $("#revision").css('top', "20px")
-          $("#padmain").css('left', '0px');
-          $("#padmain").css('right', '197px');
-          $("#padmain").css('width', 'auto');
-          $("#rightbars").css('right', '7px');
-          $("#rightbars").css('margin-right', '0px');
-          $("#timeslider").css('width', 'auto');
-        }
-
-        if (clientVars.disableRightBar)
-        {
-          $("#rightbars").css('display', 'none');
-          $('#padmain').css('width', 'auto');
-          if (clientVars.fullWidth) $("#padmain").css('right', '7px');
-          else $("#padmain").css('width', '860px');
-          $("#revision").css('position', "absolute");
-          $("#revision").css('right', "20px");
-          $("#revision").css('top', "20px");
-        }
-
-
-        if (clientVars.sliderEnabled)
-        {
-          if (clientVars.supportsSlider)
-          {
-            $("#padmain, #rightbars").css('top', "130px");
-            $("#timeslider").show();
-            setSliderLength(clientVars.totalRevs);
-            setSliderPosition(clientVars.revNum);
-            clientVars.savedRevisions.forEach(function(revision)
-            {
-              addSavedRevision(revision.revNum, revision);
-            })
-          }
-          else
-          {
-            // slider is not supported
-            $("#padmain, #rightbars").css('top', "130px");
-            $("#timeslider").show();
-            $("#error").html("The timeslider feature is not supported on this pad. <a href=\"/ep/about/faq#disabledslider\">Why not?</a>");
-            $("#error").show();
+	      var hashRev = Number(window.location.hash.substr(1));
+	      if(!isNaN(hashRev))
+	      {
+	        // this is necessary because of the socket.io-event which loads the changesets 
+            setTimeout(function() { setSliderPosition(hashRev); }, 1);
           }
         }
-        else
+        
+        setSliderLength(clientVars.collab_client_vars.rev);
+        setSliderPosition(clientVars.collab_client_vars.rev);
+        
+        _.each(clientVars.savedRevisions, function(revision)
         {
-          if (clientVars.supportsSlider)
-          {
-            setSliderLength(clientVars.totalRevs);
-            setSliderPosition(clientVars.revNum);
-          }
-        }
+          addSavedRevision(revision.revNum, revision);
+        })
+        
       }
     });
   })();

@@ -26,17 +26,14 @@
 // requires: plugins
 // requires: undefined
 
-var Security = require('/security');
-var plugins = require('/plugins').plugins;
-var map = require('/ace2_common').map;
+var Security = require('./security');
+var hooks = require('./pluginfw/hooks');
+var _ = require('./underscore');
+var lineAttributeMarker = require('./linestylefilter').lineAttributeMarker;
+var noop = function(){};
+
 
 var domline = {};
-domline.noop = function()
-{};
-domline.identity = function(x)
-{
-  return x;
-};
 
 domline.addToLineClass = function(lineClass, cls)
 {
@@ -60,11 +57,11 @@ domline.createDomLine = function(nonEmpty, doesWrap, optBrowser, optDocument)
 {
   var result = {
     node: null,
-    appendSpan: domline.noop,
-    prepareForAdd: domline.noop,
-    notifyAdded: domline.noop,
-    clearSpans: domline.noop,
-    finishUpdate: domline.noop,
+    appendSpan: noop,
+    prepareForAdd: noop,
+    notifyAdded: noop,
+    clearSpans: noop,
+    finishUpdate: noop,
     lineMarker: 0
   };
 
@@ -84,27 +81,29 @@ domline.createDomLine = function(nonEmpty, doesWrap, optBrowser, optDocument)
   }
 
   var html = [];
-  var preHtml, postHtml;
+  var preHtml = '', 
+  postHtml = '';
   var curHTML = null;
 
   function processSpaces(s)
   {
     return domline.processSpaces(s, doesWrap);
   }
-  var identity = domline.identity;
-  var perTextNodeProcess = (doesWrap ? identity : processSpaces);
-  var perHtmlLineProcess = (doesWrap ? processSpaces : identity);
+
+  var perTextNodeProcess = (doesWrap ? _.identity : processSpaces);
+  var perHtmlLineProcess = (doesWrap ? processSpaces : _.identity);
   var lineClass = 'ace-line';
   result.appendSpan = function(txt, cls)
   {
-    if (cls.indexOf('list') >= 0)
+    var processedMarker = false;
+    // Handle lineAttributeMarker, if present
+    if (cls.indexOf(lineAttributeMarker) >= 0)
     {
       var listType = /(?:^| )list:(\S+)/.exec(cls);
       var start = /(?:^| )start:(\S+)/.exec(cls);
       if (listType)
       {
         listType = listType[1];
-        start = start?'start="'+Security.escapeHTMLAttribute(start[1])+'"':'';
         if (listType)
         {
           if(listType.indexOf("number") < 0)
@@ -114,13 +113,36 @@ domline.createDomLine = function(nonEmpty, doesWrap, optBrowser, optDocument)
           }
           else
           {
-            preHtml = '<ol '+start+' class="list-' + Security.escapeHTMLAttribute(listType) + '"><li>';
+            if(start){ // is it a start of a list with more than one item in?
+              if(start[1] == 1){ // if its the first one at this level?
+                lineClass = lineClass + " " + "list-start-" + listType; // Add start class to DIV node
+              }
+              preHtml = '<ol start='+start[1]+' class="list-' + Security.escapeHTMLAttribute(listType) + '"><li>';
+            }else{
+               preHtml = '<ol class="list-' + Security.escapeHTMLAttribute(listType) + '"><li>'; // Handles pasted contents into existing lists
+            }
             postHtml = '</li></ol>';
           }
-        }
+        } 
+        processedMarker = true;
+      }
+      
+      _.map(hooks.callAll("aceDomLineProcessLineAttributes", {
+        domline: domline,
+        cls: cls
+      }), function(modifier)
+      {
+        preHtml += modifier.preHtml;
+        postHtml += modifier.postHtml;
+        processedMarker |= modifier.processedMarker;
+      });
+      
+      if( processedMarker ){
         result.lineMarker += txt.length;
         return; // don't append any text
-      }
+      } 
+
+
     }
     var href = null;
     var simpleTags = null;
@@ -145,9 +167,7 @@ domline.createDomLine = function(nonEmpty, doesWrap, optBrowser, optDocument)
     var extraOpenTags = "";
     var extraCloseTags = "";
 
-    var plugins_ = plugins;
-
-    map(plugins_.callHook("aceCreateDomLine", {
+    _.map(hooks.callAll("aceCreateDomLine", {
       domline: domline,
       cls: cls
     }), function(modifier)
@@ -207,13 +227,17 @@ domline.createDomLine = function(nonEmpty, doesWrap, optBrowser, optDocument)
     {
       newHTML = (preHtml || '') + newHTML + (postHtml || '');
     }
-    html = preHtml = postHtml = null; // free memory
+    html = preHtml = postHtml = ''; // free memory
     if (newHTML !== curHTML)
     {
       curHTML = newHTML;
       result.node.innerHTML = curHTML;
     }
     if (lineClass !== null) result.node.className = lineClass;
+	
+	hooks.callAll("acePostWriteDomLineHTML", {
+        node: result.node
+	});
   }
   result.prepareForAdd = writeHTML;
   result.finishUpdate = writeHTML;

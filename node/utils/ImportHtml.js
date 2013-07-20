@@ -17,10 +17,9 @@
 var jsdom = require('jsdom-nocontextifiy').jsdom;
 var log4js = require('log4js');
 
-var CommonCode = require('../utils/common_code');
-var Changeset = CommonCode.require("/Changeset");
-var contentcollector = CommonCode.require("/contentcollector");
-var map = CommonCode.require("/ace2_common").map;
+
+var Changeset = require("ep_etherpad-lite/static/js/Changeset");
+var contentcollector = require("ep_etherpad-lite/static/js/contentcollector");
 
 function setPadHTML(pad, html, callback)
 {
@@ -50,9 +49,7 @@ function setPadHTML(pad, html, callback)
   }
 
   // Get the new plain text and its attributes
-  var newText = map(result.lines, function (e) {
-    return e + '\n';
-  }).join('');
+  var newText = result.lines.join('\n');
   apiLogger.debug('newText:');
   apiLogger.debug(newText);
   var newAttribs = result.lineAttribs.join('|1+1') + '|1+1';
@@ -62,7 +59,7 @@ function setPadHTML(pad, html, callback)
     var attribsIter = Changeset.opIterator(attribs);
     var textIndex = 0;
     var newTextStart = 0;
-    var newTextEnd = newText.length - 1;
+    var newTextEnd = newText.length;
     while (attribsIter.hasNext())
     {
       var op = attribsIter.next();

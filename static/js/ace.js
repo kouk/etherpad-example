@@ -1,5 +1,5 @@
 /**
- * This code is mostly from the old Etherpad. Please help us to comment this code. 
+ * This code is mostly from the old Etherpad. Please help us to comment this code.
  * This helps other people to understand this code better and helps them to improve it.
  * TL;DR COMMENTS ON THIS FILE ARE HIGHLY APPRECIATED
  */
@@ -24,11 +24,22 @@
 // requires: plugins
 // requires: undefined
 
+var KERNEL_SOURCE = '../static/js/require-kernel.js';
+
 Ace2Editor.registry = {
   nextId: 1
 };
 
-var plugins = require('/plugins').plugins;
+var hooks = require('./pluginfw/hooks');
+var _ = require('./underscore');
+
+function scriptTag(source) {
+  return (
+    '<script type="text/javascript">\n'
+    + source.replace(/<\//g, '<\\/') +
+    '</script>'
+  )
+}
 
 function Ace2Editor()
 {
@@ -49,8 +60,7 @@ function Ace2Editor()
     {
       var that = this;
       var args = arguments;
-
-      function action()
+      var action = function()
       {
         func.apply(that, args);
       }
@@ -71,78 +81,52 @@ function Ace2Editor()
 
   function doActionsPendingInit()
   {
-    for (var i = 0; i < actionsPendingInit.length; i++)
-    {
-      actionsPendingInit[i]();
-    }
+    _.each(actionsPendingInit, function(fn,i){
+      fn()
+    });
     actionsPendingInit = [];
   }
 
   ace2.registry[info.id] = info;
 
-  editor.importText = pendingInit(function(newCode, undoable)
-  {
-    info.ace_importText(newCode, undoable);
+  // The following functions (prefixed by 'ace_')  are exposed by editor, but
+  // execution is delayed until init is complete
+  var aceFunctionsPendingInit = ['importText', 'importAText', 'focus',
+  'setEditable', 'getFormattedCode', 'setOnKeyPress', 'setOnKeyDown',
+  'setNotifyDirty', 'setProperty', 'setBaseText', 'setBaseAttributedText',
+  'applyChangesToBase', 'applyPreparedChangesetToBase',
+  'setUserChangeNotificationCallback', 'setAuthorInfo',
+  'setAuthorSelectionRange', 'callWithAce', 'execCommand', 'replaceRange'];
+
+  _.each(aceFunctionsPendingInit, function(fnName,i){
+    var prefix = 'ace_';
+    var name = prefix + fnName;
+    editor[fnName] = pendingInit(function(){
+      info[prefix + fnName].apply(this, arguments);
+    });
   });
-  editor.importAText = pendingInit(function(newCode, apoolJsonObj, undoable)
-  {
-    info.ace_importAText(newCode, apoolJsonObj, undoable);
-  });
+
   editor.exportText = function()
   {
     if (!loaded) return "(awaiting init)\n";
     return info.ace_exportText();
   };
+
   editor.getFrame = function()
   {
     return info.frame || null;
   };
-  editor.focus = pendingInit(function()
-  {
-    info.ace_focus();
-  });
-  editor.setEditable = pendingInit(function(newVal)
-  {
-    info.ace_setEditable(newVal);
-  });
-  editor.getFormattedCode = function()
-  {
-    return info.ace_getFormattedCode();
-  };
-  editor.setOnKeyPress = pendingInit(function(handler)
-  {
-    info.ace_setOnKeyPress(handler);
-  });
-  editor.setOnKeyDown = pendingInit(function(handler)
-  {
-    info.ace_setOnKeyDown(handler);
-  });
-  editor.setNotifyDirty = pendingInit(function(handler)
-  {
-    info.ace_setNotifyDirty(handler);
-  });
 
-  editor.setProperty = pendingInit(function(key, value)
-  {
-    info.ace_setProperty(key, value);
-  });
   editor.getDebugProperty = function(prop)
   {
     return info.ace_getDebugProperty(prop);
   };
 
-  editor.setBaseText = pendingInit(function(txt)
+  editor.getInInternationalComposition = function()
   {
-    info.ace_setBaseText(txt);
-  });
-  editor.setBaseAttributedText = pendingInit(function(atxt, apoolJsonObj)
-  {
-    info.ace_setBaseAttributedText(atxt, apoolJsonObj);
-  });
-  editor.applyChangesToBase = pendingInit(function(changes, optAuthor, apoolJsonObj)
-  {
-    info.ace_applyChangesToBase(changes, optAuthor, apoolJsonObj);
-  });
+    return info.ace_getInInternationalComposition();
+  };
+
   // prepareUserChangeset:
   // Returns null if no new changes or ACE not ready.  Otherwise, bundles up all user changes
   // to the latest base text into a Changeset, which is returned (as a string if encodeAsString).
@@ -157,24 +141,6 @@ function Ace2Editor()
     if (!loaded) return null;
     return info.ace_prepareUserChangeset();
   };
-  editor.applyPreparedChangesetToBase = pendingInit(
-
-  function()
-  {
-    info.ace_applyPreparedChangesetToBase();
-  });
-  editor.setUserChangeNotificationCallback = pendingInit(function(callback)
-  {
-    info.ace_setUserChangeNotificationCallback(callback);
-  });
-  editor.setAuthorInfo = pendingInit(function(author, authorInfo)
-  {
-    info.ace_setAuthorInfo(author, authorInfo);
-  });
-  editor.setAuthorSelectionRange = pendingInit(function(author, start, end)
-  {
-    info.ace_setAuthorSelectionRange(author, start, end);
-  });
 
   editor.getUnhandledErrors = function()
   {
@@ -183,19 +149,7 @@ function Ace2Editor()
     return info.ace_getUnhandledErrors();
   };
 
-  editor.callWithAce = pendingInit(function(fn, callStack, normalize)
-  {
-    return info.ace_callWithAce(fn, callStack, normalize);
-  });
 
-  editor.execCommand = pendingInit(function(cmd, arg1)
-  {
-    info.ace_execCommand(cmd, arg1);
-  });
-  editor.replaceRange = pendingInit(function(start, end, text)
-  {
-    info.ace_replaceRange(start, end, text);
-  });
 
   function sortFilesByEmbeded(files) {
     var embededFiles = [];
@@ -216,34 +170,6 @@ function Ace2Editor()
 
     return {embeded: embededFiles, remote: remoteFiles};
   }
-  function pushRequireScriptTo(buffer) {
-    var KERNEL_SOURCE = '../static/js/require-kernel.js';
-    var KERNEL_BOOT = 'require.setRootURI("../minified/");\nrequire.setGlobalKeyPath("require");'
-    if (Ace2Editor.EMBEDED && Ace2Editor.EMBEDED[KERNEL_SOURCE]) {
-      buffer.push('<script type="text/javascript">');
-      buffer.push(Ace2Editor.EMBEDED[KERNEL_SOURCE]);
-      buffer.push(KERNEL_BOOT);
-      buffer.push('<\/script>');
-    }
-  }
-  function pushScriptsTo(buffer) {
-    /* Folling is for packaging regular expression. */
-    /* $$INCLUDE_JS("../static/js/ace2_inner.js"); */
-    var ACE_SOURCE = '../static/js/ace2_inner.js';
-    if (Ace2Editor.EMBEDED && Ace2Editor.EMBEDED[ACE_SOURCE]) {
-      buffer.push('<script type="text/javascript">');
-      buffer.push(Ace2Editor.EMBEDED[ACE_SOURCE]);
-      buffer.push('require("/ace2_inner");');
-      buffer.push('<\/script>');
-    } else {
-      file = ACE_SOURCE;
-      file = file.replace(/^\.\.\/static\/js\//, '../minified/');
-      buffer.push('<script type="application/javascript" src="' + file + '"><\/script>');
-      buffer.push('<script type="text/javascript">');
-      buffer.push('require("/ace2_inner");');
-      buffer.push('<\/script>');
-    }
-  }
   function pushStyleTagsFor(buffer, files) {
     var sorted = sortFilesByEmbeded(files);
     var embededFiles = sorted.embeded;
@@ -253,7 +179,7 @@ function Ace2Editor()
       buffer.push('<style type="text/css">');
       for (var i = 0, ii = embededFiles.length; i < ii; i++) {
         var file = embededFiles[i];
-        buffer.push(Ace2Editor.EMBEDED[file].replace(/<\//g, '<\\/'));
+        buffer.push((Ace2Editor.EMBEDED[file] || '').replace(/<\//g, '<\\/'));
       }
       buffer.push('<\/style>');
     }
@@ -292,51 +218,84 @@ function Ace2Editor()
       iframeHTML.push(doctype);
       iframeHTML.push("<html><head>");
 
-      // For compatability's sake transform in and out.
-      for (var i = 0, ii = iframeHTML.length; i < ii; i++) {
-        iframeHTML[i] = JSON.stringify(iframeHTML[i]);
-      }
-      plugins.callHook("aceInitInnerdocbodyHead", {
-        iframeHTML: iframeHTML
-      });
-      for (var i = 0, ii = iframeHTML.length; i < ii; i++) {
-        iframeHTML[i] = JSON.parse(iframeHTML[i]);
-      }
-
       // calls to these functions ($$INCLUDE_...)  are replaced when this file is processed
       // and compressed, putting the compressed code from the named file directly into the
       // source here.
-      // these lines must conform to a specific format because they are passed by the build script:      
+      // these lines must conform to a specific format because they are passed by the build script:
       var includedCSS = [];
       var $$INCLUDE_CSS = function(filename) {includedCSS.push(filename)};
       $$INCLUDE_CSS("../static/css/iframe_editor.css");
       $$INCLUDE_CSS("../static/css/pad.css");
       $$INCLUDE_CSS("../static/custom/pad.css");
+
+      var additionalCSS = _(hooks.callAll("aceEditorCSS")).map(function(path){ return '../static/plugins/' + path });
+      includedCSS = includedCSS.concat(additionalCSS);
+
       pushStyleTagsFor(iframeHTML, includedCSS);
 
-      var includedJS = [];
-      var $$INCLUDE_JS = function(filename) {includedJS.push(filename)};
-      pushRequireScriptTo(iframeHTML);
-      // Inject my plugins into my child.
-      iframeHTML.push('\
-<script type="text/javascript">\
-  require.define("/plugins", null);\n\
-  require.define("/plugins.js", function (require, exports, module) {\
-    module.exports = parent.parent.require("/plugins");\
-  });\
-</script>\
-');
-      pushScriptsTo(iframeHTML);
+      if (!Ace2Editor.EMBEDED && Ace2Editor.EMBEDED[KERNEL_SOURCE]) {
+        // Remotely src'd script tag will not work in IE; it must be embedded, so
+        // throw an error if it is not.
+        throw new Error("Require kernel could not be found.");
+      }
+
+      iframeHTML.push(scriptTag(
+Ace2Editor.EMBEDED[KERNEL_SOURCE] + '\n\
+require.setRootURI("../javascripts/src");\n\
+require.setLibraryURI("../javascripts/lib");\n\
+require.setGlobalKeyPath("require");\n\
+\n\
+var hooks = require("ep_etherpad-lite/static/js/pluginfw/hooks");\n\
+var plugins = require("ep_etherpad-lite/static/js/pluginfw/client_plugins");\n\
+hooks.plugins = plugins;\n\
+plugins.adoptPluginsFromAncestorsOf(window);\n\
+\n\
+$ = jQuery = require("ep_etherpad-lite/static/js/rjquery").jQuery; // Expose jQuery #HACK\n\
+var Ace2Inner = require("ep_etherpad-lite/static/js/ace2_inner");\n\
+\n\
+plugins.ensure(function () {\n\
+  Ace2Inner.init();\n\
+});\n\
+'));
 
       iframeHTML.push('<style type="text/css" title="dynamicsyntax"></style>');
+
+      hooks.callAll("aceInitInnerdocbodyHead", {
+        iframeHTML: iframeHTML
+      });
+
       iframeHTML.push('</head><body id="innerdocbody" class="syntax" spellcheck="false">&nbsp;</body></html>');
 
       // Expose myself to global for my child frame.
       var thisFunctionsName = "ChildAccessibleAce2Editor";
       (function () {return this}())[thisFunctionsName] = Ace2Editor;
 
-      var outerScript = 'editorId = "' + info.id + '"; editorInfo = parent.' + thisFunctionsName + '.registry[editorId]; ' + 'window.onload = function() ' + '{ window.onload = null; setTimeout' + '(function() ' + '{ var iframe = document.createElement("IFRAME"); ' + 'iframe.scrolling = "no"; var outerdocbody = document.getElementById("outerdocbody"); ' + 'iframe.frameBorder = 0; iframe.allowTransparency = true; ' + // for IE
-      'outerdocbody.insertBefore(iframe, outerdocbody.firstChild); ' + 'iframe.ace_outerWin = window; ' + 'readyFunc = function() { editorInfo.onEditorReady(); readyFunc = null; editorInfo = null; }; ' + 'var doc = iframe.contentWindow.document; doc.open(); var text = (' + JSON.stringify(iframeHTML.join('\n')) + ');doc.write(text); doc.close(); ' + '}, 0); }';
+      var outerScript = '\
+editorId = ' + JSON.stringify(info.id) + ';\n\
+editorInfo = parent[' + JSON.stringify(thisFunctionsName) + '].registry[editorId];\n\
+window.onload = function () {\n\
+  window.onload = null;\n\
+  setTimeout(function () {\n\
+    var iframe = document.createElement("IFRAME");\n\
+    iframe.name = "ace_inner";\n\
+    iframe.scrolling = "no";\n\
+    var outerdocbody = document.getElementById("outerdocbody");\n\
+    iframe.frameBorder = 0;\n\
+    iframe.allowTransparency = true; // for IE\n\
+    outerdocbody.insertBefore(iframe, outerdocbody.firstChild);\n\
+    iframe.ace_outerWin = window;\n\
+    readyFunc = function () {\n\
+      editorInfo.onEditorReady();\n\
+      readyFunc = null;\n\
+      editorInfo = null;\n\
+    };\n\
+    var doc = iframe.contentWindow.document;\n\
+    doc.open();\n\
+    var text = (' + JSON.stringify(iframeHTML.join('\n')) + ');\n\
+    doc.write(text);\n\
+    doc.close();\n\
+  }, 0);\n\
+}';
 
       var outerHTML = [doctype, '<html><head>']
 
@@ -345,13 +304,19 @@ function Ace2Editor()
       $$INCLUDE_CSS("../static/css/iframe_editor.css");
       $$INCLUDE_CSS("../static/css/pad.css");
       $$INCLUDE_CSS("../static/custom/pad.css");
+
+
+      var additionalCSS = _(hooks.callAll("aceEditorCSS")).map(function(path){ return '../static/plugins/' + path });
+      includedCSS = includedCSS.concat(additionalCSS);
+
       pushStyleTagsFor(outerHTML, includedCSS);
 
       // bizarrely, in FF2, a file with no "external" dependencies won't finish loading properly
       // (throbs busy while typing)
-      outerHTML.push('<link rel="stylesheet" type="text/css" href="data:text/css,"/>', '\x3cscript>\n', outerScript.replace(/<\//g, '<\\/'), '\n\x3c/script>', '</head><body id="outerdocbody"><div id="sidediv"><!-- --></div><div id="linemetricsdiv">x</div><div id="overlaysdiv"><!-- --></div></body></html>');
+      outerHTML.push('<style type="text/css" title="dynamicsyntax"></style>', '<link rel="stylesheet" type="text/css" href="data:text/css,"/>', scriptTag(outerScript), '</head><body id="outerdocbody"><div id="sidediv"><!-- --></div><div id="linemetricsdiv">x</div><div id="overlaysdiv"><!-- --></div></body></html>');
 
       var outerFrame = document.createElement("IFRAME");
+      outerFrame.name = "ace_outer";
       outerFrame.frameBorder = 0; // for IE
       info.frame = outerFrame;
       document.getElementById(containerId).appendChild(outerFrame);
