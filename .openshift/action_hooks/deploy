@@ -21,7 +21,7 @@ if [[ -f ./server.js ]]
 then
   rm server.js
 fi
-ln -s node/server.js .
+ln -s node_modules/ep_etherpad-lite/node/server.js .
 popd
 
 pushd $OPENSHIFT_REPO_DIR/static/js
